@@ -78,11 +78,11 @@ export default function Register() {
       if (response.ok) {
         toast({
           title: "Success",
-          description: "Registration successful! You can now login.",
+          description: "Registration successful! Redirecting to login page...",
         });
         
-        // Redirect to login or home page
-        router.push('/');
+        // Redirect to login page
+        router.push('/login');
       } else {
         throw new Error(data.message || 'Registration failed');
       }
