@@ -185,8 +185,8 @@ const Home = () => {
     events.forEach(event => {
       try {
         // Parse event dates (DD-MM-YYYY format)
-        const [startDay, startMonth, startYear] = event.startDate.split('-').map(Number);
-        const [endDay, endMonth, endYear] = event.endDate.split('-').map(Number);
+        const [startDay, startMonth, startYear] = event.eventStartDate.split('-').map(Number);
+        const [endDay, endMonth, endYear] = event.eventEndDate.split('-').map(Number);
         
         const eventStartDate = new Date(startYear, startMonth - 1, startDay);
         const eventEndDate = new Date(endYear, endMonth - 1, endDay);
@@ -208,8 +208,8 @@ const Home = () => {
     // Sort each category by start date (ascending order)
     const sortByDate = (a: Event, b: Event) => {
       try {
-        const [aDay, aMonth, aYear] = a.startDate.split('-').map(Number);
-        const [bDay, bMonth, bYear] = b.startDate.split('-').map(Number);
+        const [aDay, aMonth, aYear] = a.eventStartDate.split('-').map(Number);
+        const [bDay, bMonth, bYear] = b.eventStartDate.split('-').map(Number);
         const aDate = new Date(aYear, aMonth - 1, aDay);
         const bDate = new Date(bYear, bMonth - 1, bDay);
         return aDate.getTime() - bDate.getTime();
@@ -284,11 +284,11 @@ const Home = () => {
                       key={event._id}
                       className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300"
                     >
-                      {event.banner && (
+                      {event.eventBanner && (
                         <div className="relative h-64">
                           <Image
-                            src={event.banner}
-                            alt={event.title}
+                            src={event.eventBanner}
+                            alt={event.eventName}
                             fill
                             className="object-cover"
                             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
@@ -301,22 +301,22 @@ const Home = () => {
                             Upcoming
                           </span>
                           <span className="text-sm text-gray-500">
-                            {event.startDate} - {event.endDate}
+                            {event.eventStartDate} - {event.eventEndDate}
                           </span>
                         </div>
                         <h3 className="text-xl font-bold text-gray-900 mb-2">
-                          {event.title}
+                          {event.eventName}
                         </h3>
-                        <p className="text-gray-600 mb-2">{event.location}</p>
+                        <p className="text-gray-600 mb-2">{event.eventLocation}</p>
                         <p className="text-gray-500 text-sm mb-4 line-clamp-2">
-                          {event.description}
+                          {event.eventInformation}
                         </p>
                         {event.registrationDeadline && (
                           <p className="text-gray-500 text-sm mb-2">
                             Registration Deadline: {event.registrationDeadline}
                           </p>
                         )}
-                        {event.status === 'cancelled' ? (
+                        {event.status === 'cancel' ? (
                           <button
                             onClick={() => handleRegisterClick(event)}
                             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-red-500 hover:bg-red-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-red-500 cursor-pointer"
@@ -365,11 +365,11 @@ const Home = () => {
                       key={event._id}
                       className="bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-shadow duration-300"
                     >
-                      {event.banner && (
+                      {event.eventBanner && (
                         <div className="relative h-64">
                           <Image
-                            src={event.banner}
-                            alt={event.title}
+                            src={event.eventBanner}
+                            alt={event.eventName}
                             fill
                             className="object-cover"
                             sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
@@ -382,15 +382,15 @@ const Home = () => {
                             Ongoing
                           </span>
                           <span className="text-sm text-gray-500">
-                            {event.startDate} - {event.endDate}
+                            {event.eventStartDate} - {event.eventEndDate}
                           </span>
                         </div>
                         <h3 className="text-xl font-bold text-gray-900 mb-2">
-                          {event.title}
+                          {event.eventName}
                         </h3>
-                        <p className="text-gray-600 mb-2">{event.location}</p>
+                        <p className="text-gray-600 mb-2">{event.eventLocation}</p>
                         <p className="text-gray-500 text-sm mb-4 line-clamp-2">
-                          {event.description}
+                          {event.eventInformation}
                         </p>
                         {event.registrationDeadline && (
                           <p className="text-gray-500 text-sm mb-2">
