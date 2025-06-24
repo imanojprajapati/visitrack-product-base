@@ -115,7 +115,11 @@ export default function AdminLayout({ children }: AdminLayoutProps) {
 
           {/* User Info at Bottom */}
           <div className="px-4 py-4 border-t border-[#DBE2EF] bg-white">
-            <div className="flex items-center space-x-3 mb-4">
+            <div 
+              className="flex items-center space-x-3 mb-4 cursor-pointer hover:bg-[#F9F7F7] rounded-lg p-2 transition-colors"
+              onClick={() => router.push('/admin/profile')}
+              title="Click to view profile"
+            >
               <div className="flex-shrink-0">
                 <div className="w-10 h-10 bg-[#3F72AF] rounded-full flex items-center justify-center">
                   <span className="text-white font-semibold text-sm">
