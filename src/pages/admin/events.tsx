@@ -42,8 +42,19 @@ export default function EventManagement() {
   });
 
   useEffect(() => {
+    console.log('🔄 [Events Frontend] Auth state changed:', { 
+      hasToken: !!token, 
+      ownerId,
+      tokenLength: token?.length || 0 
+    });
+    
     if (token && ownerId) {
       fetchEvents();
+    } else {
+      console.warn('⚠️ [Events Frontend] Missing required auth data:', { 
+        hasToken: !!token, 
+        hasOwnerId: !!ownerId 
+      });
     }
   }, [token, ownerId]);
 
@@ -57,17 +68,20 @@ export default function EventManagement() {
 
       if (response.ok) {
         const data = await response.json();
-        const filteredEvents = data.filter((event: Event) => event.ownerId === ownerId);
-        setEvents(filteredEvents);
+        // Remove the redundant frontend filtering since API already filters by ownerId
+        setEvents(data);
+        console.log(`✅ [Events Frontend] Loaded ${data.length} events for current user`);
       } else {
+        const errorData = await response.json();
+        console.error('❌ [Events Frontend] Failed to fetch events:', errorData);
         toast({
           title: "Error",
-          description: "Failed to fetch events",
+          description: errorData.message || "Failed to fetch events",
           variant: "destructive",
         });
       }
     } catch (error) {
-      console.error('Error fetching events:', error);
+      console.error('❌ [Events Frontend] Error fetching events:', error);
       toast({
         title: "Error",
         description: "Failed to fetch events",
