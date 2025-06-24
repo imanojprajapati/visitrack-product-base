@@ -4,6 +4,7 @@ import AdminLayout from '../../components/AdminLayout';
 import { Button } from '../../components/ui/button';
 import { Card } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
+import { ConfirmationDialog } from '../../components/ui/confirmation-dialog';
 import { Input } from '../../components/ui/input';
 import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
@@ -25,6 +26,8 @@ export default function EventManagement() {
   const [isCreating, setIsCreating] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [eventToDelete, setEventToDelete] = useState<string | null>(null);
   const [selectedEvent, setSelectedEvent] = useState<Event | null>(null);
   const [bannerFile, setBannerFile] = useState<File | null>(null);
   const [bannerPreview, setBannerPreview] = useState<string>('');
@@ -241,14 +244,17 @@ export default function EventManagement() {
     setIsViewModalOpen(true);
   };
 
-  const handleDelete = async (eventId: string) => {
-    if (!confirm('Are you sure you want to delete this event?')) {
-      return;
-    }
+  const handleDeleteClick = (eventId: string) => {
+    setEventToDelete(eventId);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDelete = async () => {
+    if (!eventToDelete) return;
 
     setIsDeleting(true);
     try {
-      const response = await fetch(`/api/events/${eventId}`, {
+      const response = await fetch(`/api/events/${eventToDelete}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -277,6 +283,8 @@ export default function EventManagement() {
       });
     } finally {
       setIsDeleting(false);
+      setEventToDelete(null);
+      setDeleteConfirmOpen(false);
     }
   };
 
@@ -595,7 +603,7 @@ export default function EventManagement() {
                     <Button
                       variant="ghost"
                       size="sm"
-                      onClick={() => handleDelete(event._id!)}
+                                                  onClick={() => handleDeleteClick(event._id!)}
                       disabled={isDeleting}
                       className="text-red-500 hover:text-red-700"
                     >
@@ -679,6 +687,18 @@ export default function EventManagement() {
             )}
           </DialogContent>
         </Dialog>
+
+        {/* Delete Confirmation Dialog */}
+        <ConfirmationDialog
+          open={deleteConfirmOpen}
+          onOpenChange={setDeleteConfirmOpen}
+          title="Delete Event"
+          description="Are you sure you want to delete this event? This action cannot be undone and will permanently remove all event data and associated registrations."
+          confirmText="Delete Event"
+          cancelText="Cancel"
+          onConfirm={handleDelete}
+          variant="destructive"
+        />
       </div>
     </AdminLayout>
   );

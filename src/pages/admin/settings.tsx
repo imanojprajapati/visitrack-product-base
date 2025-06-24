@@ -9,6 +9,7 @@ import { Label } from '../../components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../../components/ui/select';
 import { Card, CardHeader, CardContent } from '../../components/ui/card';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '../../components/ui/dialog';
+import { ConfirmationDialog } from '../../components/ui/confirmation-dialog';
 import { useToast } from '../../hooks/use-toast';
 import { Users, Plus, Edit, Trash2, Eye, EyeOff } from 'lucide-react';
 
@@ -41,6 +42,8 @@ export default function Settings() {
   const [isEditing, setIsEditing] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
   const [showPassword, setShowPassword] = useState(false);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
+  const [userToDelete, setUserToDelete] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     fullName: '',
@@ -165,13 +168,16 @@ export default function Settings() {
     }
   };
 
-  const handleDeleteUser = async (userId: string) => {
-    if (!confirm('Are you sure you want to delete this user?')) {
-      return;
-    }
+  const handleDeleteClick = (userId: string) => {
+    setUserToDelete(userId);
+    setDeleteConfirmOpen(true);
+  };
+
+  const handleDeleteUser = async () => {
+    if (!userToDelete) return;
 
     try {
-      const response = await fetch(`/api/users/${userId}`, {
+      const response = await fetch(`/api/users/${userToDelete}`, {
         method: 'DELETE',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -198,6 +204,9 @@ export default function Settings() {
         description: "Failed to delete user",
         variant: "destructive",
       });
+    } finally {
+      setUserToDelete(null);
+      setDeleteConfirmOpen(false);
     }
   };
 
@@ -694,7 +703,7 @@ export default function Settings() {
                               <Button
                                 variant="ghost"
                                 size="sm"
-                                onClick={() => handleDeleteUser(user._id)}
+                                onClick={() => handleDeleteClick(user._id)}
                                 className="text-red-500 hover:text-red-700 hover:bg-red-50"
                               >
                                 <Trash2 className="w-4 h-4" />
@@ -715,6 +724,18 @@ export default function Settings() {
               )}
             </CardContent>
           </Card>
+
+          {/* Delete Confirmation Dialog */}
+          <ConfirmationDialog
+            open={deleteConfirmOpen}
+            onOpenChange={setDeleteConfirmOpen}
+            title="Delete User"
+            description="Are you sure you want to delete this user? This action cannot be undone and will permanently remove all user data."
+            confirmText="Delete User"
+            cancelText="Cancel"
+            onConfirm={handleDeleteUser}
+            variant="destructive"
+          />
         </div>
       </AdminLayout>
     </>
