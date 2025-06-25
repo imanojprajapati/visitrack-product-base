@@ -321,6 +321,12 @@ const BadgeManagement = () => {
     return event?.eventName || 'Unknown Event';
   };
 
+  // Get available events for badge creation (exclude events that already have badges)
+  const getAvailableEvents = () => {
+    const eventsWithBadges = new Set(badges.map(badge => badge.eventId));
+    return events.filter(event => event._id && !eventsWithBadges.has(event._id));
+  };
+
   // Reset create modal when opening
   const handleCreateModalOpen = (open: boolean) => {
     if (open) {
@@ -388,7 +394,11 @@ const BadgeManagement = () => {
               
               <Dialog open={createModalOpen} onOpenChange={handleCreateModalOpen}>
                 <DialogTrigger asChild>
-                  <Button className="flex items-center gap-2">
+                  <Button 
+                    className="flex items-center gap-2"
+                    disabled={getAvailableEvents().length === 0}
+                    title={getAvailableEvents().length === 0 ? "No events available for new badges" : "Create a new badge"}
+                  >
                     <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                     </svg>
@@ -424,13 +434,24 @@ const BadgeManagement = () => {
                           <SelectValue placeholder="Choose an event" />
                         </SelectTrigger>
                         <SelectContent>
-                          {events.map((event) => (
-                            <SelectItem key={event._id} value={event._id!}>
-                              {event.eventName}
-                            </SelectItem>
-                          ))}
+                          {getAvailableEvents().length === 0 ? (
+                            <div className="px-2 py-1 text-sm text-gray-500">
+                              No events available. All events already have badges.
+                            </div>
+                          ) : (
+                            getAvailableEvents().map((event) => (
+                              <SelectItem key={event._id} value={event._id!}>
+                                {event.eventName}
+                              </SelectItem>
+                            ))
+                          )}
                         </SelectContent>
                       </Select>
+                      {getAvailableEvents().length === 0 && (
+                        <p className="text-sm text-amber-600 mt-1">
+                          All events already have badges. Each event can have only one badge.
+                        </p>
+                      )}
                     </div>
 
                     <div>
@@ -462,7 +483,11 @@ const BadgeManagement = () => {
                     )}
 
                     <div className="flex gap-2 pt-4">
-                      <Button type="submit" disabled={creating} className="flex-1">
+                      <Button 
+                        type="submit" 
+                        disabled={creating || getAvailableEvents().length === 0} 
+                        className="flex-1"
+                      >
                         {creating ? 'Creating...' : 'Create Badge'}
                       </Button>
                       <Button 
@@ -497,33 +522,29 @@ const BadgeManagement = () => {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Available Events</CardTitle>
+                <CardTitle className="text-sm font-medium">Total Events</CardTitle>
                 <svg className="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">{events.length}</div>
-                <p className="text-xs text-muted-foreground">Events for badges</p>
+                <p className="text-xs text-muted-foreground">Available events</p>
               </CardContent>
             </Card>
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Recent Badges</CardTitle>
-                <svg className="h-4 w-4 text-muted-foreground" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                <CardTitle className="text-sm font-medium">Remaining Events</CardTitle>
+                <svg className={`h-4 w-4 ${getAvailableEvents().length === 0 ? 'text-red-500' : 'text-green-500'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v3m0 0v3m0-3h3m-3 0H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">
-                  {badges.filter(badge => {
-                    const weekAgo = new Date();
-                    weekAgo.setDate(weekAgo.getDate() - 7);
-                    return new Date(badge.createdAt) > weekAgo;
-                  }).length}
+                <div className={`text-2xl font-bold ${getAvailableEvents().length === 0 ? 'text-red-500' : 'text-green-500'}`}>
+                  {getAvailableEvents().length}
                 </div>
-                <p className="text-xs text-muted-foreground">Created this week</p>
+                <p className="text-xs text-muted-foreground">Events without badges</p>
               </CardContent>
             </Card>
           </div>
@@ -535,9 +556,18 @@ const BadgeManagement = () => {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
               </svg>
               <h3 className="mt-2 text-sm font-medium text-gray-900">No badges</h3>
-              <p className="mt-1 text-sm text-gray-500">Get started by creating your first badge.</p>
+              <p className="mt-1 text-sm text-gray-500">
+                {getAvailableEvents().length === 0 
+                  ? "All your events already have badges. Each event can have only one badge."
+                  : "Get started by creating your first badge."
+                }
+              </p>
               <div className="mt-6">
-                <Button onClick={() => setCreateModalOpen(true)}>
+                <Button 
+                  onClick={() => setCreateModalOpen(true)}
+                  disabled={getAvailableEvents().length === 0}
+                  title={getAvailableEvents().length === 0 ? "No events available for new badges" : "Create your first badge"}
+                >
                   <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
                   </svg>

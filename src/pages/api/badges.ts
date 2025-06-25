@@ -178,6 +178,23 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(404).json({ message: 'Event not found or access denied' });
       }
 
+      // Check if a badge already exists for this event
+      const existingBadge = await db.collection('badges').findOne({
+        eventId: eventId,
+        ownerId: user.ownerId
+      });
+
+      if (existingBadge) {
+        return res.status(400).json({ 
+          message: `A badge already exists for the event "${event.eventName}". Each event can have only one badge.`,
+          existingBadge: {
+            badgeName: existingBadge.badgeName,
+            badgeId: existingBadge._id,
+            eventName: existingBadge.eventName
+          }
+        });
+      }
+
       console.log('✅ [Badges API] Event found for badge creation:', {
         eventId: event._id,
         eventName: event.eventName,
