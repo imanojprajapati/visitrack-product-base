@@ -100,8 +100,8 @@ const Home = () => {
 
   const fetchUpcomingEvents = async () => {
     try {
-      console.log('Fetching all events for home page...');
-      const response = await fetch('/api/events?admin=true');
+      console.log('Fetching all public events for home page...');
+      const response = await fetch('/api/public-events');
       console.log('Response status:', response.status);
       if (!response.ok) {
         throw new Error('Failed to fetch events');
@@ -109,13 +109,9 @@ const Home = () => {
       const data = await response.json();
       console.log('Fetched events:', data);
       console.log('Number of events:', data.length);
-      // Handle new API response format with events and pagination
-      const eventsData = data.events || data;
-      // Filter out draft events for public display
-      const filteredEvents = Array.isArray(eventsData) 
-        ? eventsData.filter(event => event.status !== 'draft')
-        : [];
-      setEvents(filteredEvents);
+      // Data is already filtered to exclude draft events
+      const eventsData = Array.isArray(data) ? data : [];
+      setEvents(eventsData);
     } catch (err) {
       console.error('Error fetching events:', err);
       setError('Failed to load upcoming events');
@@ -126,6 +122,7 @@ const Home = () => {
 
   const handleRegisterClick = (event: Event) => {
     const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     let registrationDeadline = null;
     
     // Check if event is cancelled
@@ -137,17 +134,16 @@ const Home = () => {
     // Parse registration deadline if it exists
     if (event.registrationDeadline) {
       try {
-        // Parse DD-MM-YYYY format to Date object
-        const [day, month, year] = event.registrationDeadline.split('-').map(Number);
-        registrationDeadline = new Date(year, month - 1, day);
+        // Parse YYYY-MM-DD format to Date object
+        registrationDeadline = new Date(event.registrationDeadline);
       } catch (error) {
         console.error('Error parsing registration deadline:', error);
       }
     }
     
     // Check if registration deadline has passed
-    if (registrationDeadline && now > registrationDeadline) {
-      showModal('Registration Closed', 'You are able to register for this event at the event location and event date with pay to entry badge.');
+    if (registrationDeadline && today > registrationDeadline) {
+      showModal('Registration Closed', 'For this event you are able to register for this event at event location on event date.');
       return;
     }
     
@@ -157,20 +153,20 @@ const Home = () => {
 
   const isRegistrationClosed = (event: Event) => {
     const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     let registrationDeadline = null;
     
     // Parse registration deadline if it exists
     if (event.registrationDeadline) {
       try {
-        // Parse DD-MM-YYYY format to Date object
-        const [day, month, year] = event.registrationDeadline.split('-').map(Number);
-        registrationDeadline = new Date(year, month - 1, day);
+        // Parse YYYY-MM-DD format to Date object
+        registrationDeadline = new Date(event.registrationDeadline);
       } catch (error) {
         console.error('Error parsing registration deadline:', error);
       }
     }
     
-    return registrationDeadline && now > registrationDeadline;
+    return registrationDeadline && today > registrationDeadline;
   };
 
   // Helper function to categorize events
@@ -180,23 +176,39 @@ const Home = () => {
     
     const upcoming: Event[] = [];
     const ongoing: Event[] = [];
-    const past: Event[] = [];
+    const registrationClosed: Event[] = [];
     
     events.forEach(event => {
       try {
-        // Parse event dates (DD-MM-YYYY format)
-        const [startDay, startMonth, startYear] = event.eventStartDate.split('-').map(Number);
-        const [endDay, endMonth, endYear] = event.eventEndDate.split('-').map(Number);
+        // Parse event dates (YYYY-MM-DD format)
+        const eventStartDate = new Date(event.eventStartDate);
+        const eventEndDate = new Date(event.eventEndDate);
         
-        const eventStartDate = new Date(startYear, startMonth - 1, startDay);
-        const eventEndDate = new Date(endYear, endMonth - 1, endDay);
+        // Skip events that have completely ended (event end date is before today)
+        if (eventEndDate < today) {
+          return; // Don't show events that have ended
+        }
         
-        if (eventStartDate > today) {
+        // Parse registration deadline (YYYY-MM-DD format)
+        let registrationDeadline = null;
+        if (event.registrationDeadline) {
+          try {
+            registrationDeadline = new Date(event.registrationDeadline);
+          } catch (error) {
+            console.error('Error parsing registration deadline:', error);
+          }
+        }
+        
+        // Categorize based on registration deadline and event dates
+        if (registrationDeadline && today > registrationDeadline) {
+          // Registration deadline has passed but event hasn't ended yet
+          registrationClosed.push(event);
+        } else if (eventStartDate > today) {
+          // Event hasn't started yet and registration is still open
           upcoming.push(event);
         } else if (eventEndDate >= today) {
+          // Event is currently happening and registration is still open
           ongoing.push(event);
-        } else {
-          past.push(event);
         }
       } catch (error) {
         console.error('Error parsing event date:', error);
@@ -208,10 +220,8 @@ const Home = () => {
     // Sort each category by start date (ascending order)
     const sortByDate = (a: Event, b: Event) => {
       try {
-        const [aDay, aMonth, aYear] = a.eventStartDate.split('-').map(Number);
-        const [bDay, bMonth, bYear] = b.eventStartDate.split('-').map(Number);
-        const aDate = new Date(aYear, aMonth - 1, aDay);
-        const bDate = new Date(bYear, bMonth - 1, bDay);
+        const aDate = new Date(a.eventStartDate);
+        const bDate = new Date(b.eventStartDate);
         return aDate.getTime() - bDate.getTime();
       } catch (error) {
         return 0;
@@ -221,11 +231,11 @@ const Home = () => {
     return { 
       upcoming: upcoming.sort(sortByDate), 
       ongoing: ongoing.sort(sortByDate), 
-      past: past.sort(sortByDate) 
+      registrationClosed: registrationClosed.sort(sortByDate) 
     };
   };
 
-  const { upcoming, ongoing, past } = categorizeEvents(events);
+  const { upcoming, ongoing, registrationClosed } = categorizeEvents(events);
 
   if (!mounted) {
     return null;
@@ -335,7 +345,7 @@ const Home = () => {
                             onClick={() => handleRegisterClick(event)}
                             className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#4338CA] hover:bg-[#3730A3] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4338CA] cursor-pointer"
                           >
-                            Register Now
+                            Registration
                           </button>
                         )}
                       </div>
@@ -401,7 +411,7 @@ const Home = () => {
                           onClick={() => handleRegisterClick(event)}
                           className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-[#4338CA] hover:bg-[#3730A3] focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-[#4338CA] cursor-pointer"
                         >
-                          Register Now
+                          Registration
                         </button>
                       </div>
                     </div>
