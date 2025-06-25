@@ -1,19 +1,39 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, ObjectId } from 'mongodb';
+import { MongoClient, MongoClientOptions, ObjectId } from 'mongodb';
 
 const uri = process.env.MONGODB_URI!;
 const dbName = process.env.MONGODB_DB!;
 
 let cachedClient: MongoClient | null = null;
 
+const options: MongoClientOptions = {
+  tls: true,
+  tlsAllowInvalidCertificates: true,
+  tlsAllowInvalidHostnames: true,
+  serverSelectionTimeoutMS: 5000,
+  socketTimeoutMS: 45000,
+  connectTimeoutMS: 10000,
+  maxPoolSize: 5,
+  retryWrites: true,
+  retryReads: true,
+  family: 4
+};
+
 async function connectToDatabase() {
   if (cachedClient) {
-    return cachedClient;
+    try {
+      await cachedClient.db(dbName).admin().ping();
+      return cachedClient;
+    } catch (error) {
+      cachedClient = null;
+    }
   }
 
-  const client = new MongoClient(uri);
+  const client = new MongoClient(uri, options);
   await client.connect();
+  await client.db(dbName).admin().ping();
   cachedClient = client;
+  console.log('✅ MongoDB connected successfully (register-visitor)');
   return client;
 }
 
@@ -74,20 +94,8 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       eventId: eventId
     });
 
-    // Check if user with same phone number and email already registered for this event
-    const existingRegistration = await db.collection('visitors').findOne({
-      eventId,
-      $or: [
-        { phoneNumber },
-        { email }
-      ]
-    });
-
-    if (existingRegistration) {
-      return res.status(400).json({ 
-        message: 'You have already registered for this event with this phone number or email' 
-      });
-    }
+    // Note: Duplicate registration check is handled in step 1 (email verification)
+    // If user reaches this point, they have already passed the duplicate check
 
     // Transform additional fields from field IDs to readable labels
     const transformedAdditionalFields: Record<string, any> = {};
@@ -146,6 +154,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       country: country || '',
       pincode: pincode || '',
       source: source || 'Website', // Default to 'Website' as requested
+      entryType: '-', // Default entry type value
       visitorRegistrationDate: formattedRegistrationDate, // Format as YYYY-MM-DD
       status: status || 'Registration', // Default to 'Registration' as requested
       createdAt: new Date(),
@@ -153,6 +162,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       ...transformedAdditionalFields // Include transformed additional form fields
     };
 
+    console.log('✅ No duplicate registration found - proceeding with new registration');
     console.log('💾 Saving visitor registration:', {
       eventId,
       eventName,

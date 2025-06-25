@@ -15,6 +15,7 @@ export interface Visitor {
   country?: string;
   pincode?: string;
   source: string;
+  entryType: string;
   visitorRegistrationDate: string;
   status: string;
   createdAt?: Date;

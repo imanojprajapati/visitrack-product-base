@@ -6,7 +6,6 @@
     "dev": "next dev",
     "dev:https": "node scripts/dev-https.js",
     "build": "next build",
-    "export": "next build && next export",
     "start": "next start",
     "lint": "next lint",
     "create-admin": "node scripts/create-admin-user.js",

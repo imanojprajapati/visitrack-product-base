@@ -5,6 +5,7 @@ import { useRouter } from 'next/router';
 import Head from 'next/head';
 import Image from 'next/image';
 import QRCode from 'qrcode';
+import html2canvas from 'html2canvas';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -68,6 +69,7 @@ const RegistrationPage = () => {
   const [visitorData, setVisitorData] = useState<VisitorRegistrationData | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [otpTimer, setOtpTimer] = useState(0);
+  const [isExistingRegistration, setIsExistingRegistration] = useState(false);
 
   useEffect(() => {
     if (eventId) {
@@ -164,6 +166,33 @@ const RegistrationPage = () => {
 
     setIsLoading(true);
     try {
+      // First check if visitor is already registered for this event
+      const checkResponse = await fetch('/api/check-visitor', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          email,
+          eventId 
+        }),
+      });
+
+      const checkData = await checkResponse.json();
+
+      if (checkResponse.ok && checkData.isRegistered) {
+        // Visitor is already registered, redirect to success page
+        setVisitorData(checkData.visitorData);
+        setIsExistingRegistration(true);
+        setCurrentStep('success');
+        toast({
+          title: "Already Registered",
+          description: "You are already registered for this event. Here are your registration details.",
+        });
+        return;
+      }
+
+      // If not registered, proceed with OTP
       const response = await fetch('/api/send-otp', {
         method: 'POST',
         headers: {
@@ -332,6 +361,7 @@ const RegistrationPage = () => {
         });
 
         setCurrentStep('success');
+        setIsExistingRegistration(false);
         toast({
           title: "Success",
           description: "Registration completed successfully!",
@@ -394,6 +424,134 @@ const RegistrationPage = () => {
       toast({
         title: "Error",
         description: "Failed to generate QR code",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const downloadBadge = async () => {
+    if (!visitorData || !badge) return;
+
+    try {
+      // Generate QR code for visitor ID
+      const badgeQRCode = await QRCode.toDataURL(visitorData.visitorId, {
+        width: 72, // 0.75 inch
+        margin: 1,
+        color: {
+          dark: '#112D4E',
+          light: '#FFFFFF'
+        }
+      });
+
+      // Create a temporary badge element
+      const badgeContainer = document.createElement('div');
+      badgeContainer.style.width = '288px'; // 3 inches at 96 DPI
+      badgeContainer.style.height = '384px'; // 4 inches at 96 DPI
+      badgeContainer.style.backgroundColor = 'white';
+      badgeContainer.style.border = '1px solid #ccc';
+      badgeContainer.style.fontFamily = 'Arial, sans-serif';
+      badgeContainer.style.position = 'absolute';
+      badgeContainer.style.left = '-9999px';
+      
+      badgeContainer.innerHTML = `
+        <div style="width: 100%; height: 100%; display: flex; flex-direction: column;">
+          <!-- Row 1: Banner Image (1 inch height) -->
+          <div style="width: 100%; height: 96px; background-color: #112D4E; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+            ${badge.badgeImage ? 
+              `<img src="${badge.badgeImage}" style="width: 100%; height: 100%; object-fit: cover;" alt="Banner" crossorigin="anonymous" />` :
+              `<div style="color: white; font-size: 18px; font-weight: bold;">${visitorData.eventName}</div>`
+            }
+          </div>
+          
+          <!-- Row 2: QR Code (1 inch height) -->
+          <div style="width: 100%; height: 96px; display: flex; align-items: center; justify-content: center; background-color: #F9F7F7;">
+            <img src="${badgeQRCode}" style="width: 72px; height: 72px;" alt="QR Code" />
+          </div>
+          
+          <!-- Row 3: Visitor Details (1.5 inch height) -->
+          <div style="width: 100%; height: 144px; display: flex; align-items: center; justify-content: center; background-color: white;">
+            <div style="width: 90%; height: 90%; background-color: #F9F7F7; border: 1px solid #DBE2EF; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; justify-content: center; font-size: 9px; line-height: 1.2;">
+              <div style="text-align: left; margin-bottom: 3px; word-break: break-all;">
+                <strong style="color: #112D4E; font-size: 9px;">ID:</strong> <span style="font-size: 9px; font-family: monospace;">${visitorData.visitorId}</span>
+              </div>
+              <div style="text-align: left; margin-bottom: 3px;">
+                <strong style="color: #112D4E; font-size: 9px;">${visitorData.fullName}</strong>
+              </div>
+              <div style="text-align: left; margin-bottom: 3px; font-size: 9px;">
+                ${visitorData.email}
+              </div>
+              <div style="text-align: left; margin-bottom: 3px; font-size: 9px;">
+                ${visitorData.phoneNumber}
+              </div>
+              <div style="text-align: left; margin-bottom: 3px; font-size: 9px;">
+                <strong>${visitorData.eventName}</strong>
+              </div>
+              <div style="text-align: left; font-size: 9px;">
+                ${visitorData.eventLocation} | ${visitorData.eventStartDate}
+              </div>
+            </div>
+          </div>
+          
+          <!-- Row 4: VISITOR Label (0.5 inch height) - No border -->
+          <div style="width: 100%; height: 48px; background-color: white; display: flex; align-items: center; justify-content: center; text-align: center;">
+            <div style="color: #3F72AF; font-size: 24px; font-weight: bold; letter-spacing: 2px; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">VISITOR</div>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(badgeContainer);
+
+      // Wait for images to load
+      const images = badgeContainer.querySelectorAll('img');
+      const imagePromises = Array.from(images).map(img => {
+        return new Promise((resolve, reject) => {
+          if (img.complete) {
+            resolve(img);
+          } else {
+            img.onload = () => resolve(img);
+            img.onerror = () => resolve(img); // Continue even if image fails to load
+            // Timeout after 5 seconds
+            setTimeout(() => resolve(img), 5000);
+          }
+        });
+      });
+
+      await Promise.all(imagePromises);
+
+      // Convert to image
+      const canvas = await html2canvas(badgeContainer, {
+        width: 288,
+        height: 384,
+        background: 'white',
+        allowTaint: true,
+        useCORS: true
+      });
+
+      // Clean up
+      document.body.removeChild(badgeContainer);
+
+      // Download
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const link = document.createElement('a');
+          link.href = URL.createObjectURL(blob);
+          link.download = `visitor-badge-${visitorData.visitorId}.png`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+
+          toast({
+            title: "Success",
+            description: "Badge downloaded successfully!",
+          });
+        }
+      }, 'image/png');
+
+    } catch (error) {
+      console.error('Error generating badge:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate badge",
         variant: "destructive",
       });
     }
@@ -691,11 +849,13 @@ const RegistrationPage = () => {
                 
                 <div>
                   <h2 className="text-xl sm:text-2xl lg:text-3xl font-bold text-[#112D4E] mb-2 sm:mb-4">
-                    Registration Completed!
+                    {isExistingRegistration ? 'Already Registered!' : 'Registration Completed!'}
                   </h2>
                   <p className="text-sm sm:text-base text-[#3F72AF] mb-4 sm:mb-6">
-                    Thank you for registering for {visitorData.eventName}. 
-                    You will receive a confirmation message shortly.
+                    {isExistingRegistration 
+                      ? `You are already registered for ${visitorData.eventName}. Here are your registration details and download options.`
+                      : `Thank you for registering for ${visitorData.eventName}. You will receive a confirmation message shortly.`
+                    }
                   </p>
                   
                   <div className="bg-[#F9F7F7] rounded-lg p-4 sm:p-6 mb-4 sm:mb-6 text-left border border-[#DBE2EF]">
@@ -732,18 +892,17 @@ const RegistrationPage = () => {
                     Download QR Code
                   </Button>
                   <Button
+                    onClick={downloadBadge}
+                    className="w-full h-10 sm:h-12 text-sm sm:text-base bg-[#3F72AF] hover:bg-[#112D4E] text-white"
+                  >
+                    Download Badge
+                  </Button>
+                  <Button
                     variant="outline"
                     onClick={() => router.push('/events')}
                     className="w-full h-10 sm:h-12 text-sm sm:text-base border-[#DBE2EF] text-[#3F72AF] hover:bg-[#DBE2EF] hover:text-[#112D4E]"
                   >
                     Browse More Events
-                  </Button>
-                  <Button
-                    variant="outline"
-                    onClick={() => router.push('/')}
-                    className="w-full h-10 sm:h-12 text-sm sm:text-base border-[#DBE2EF] text-[#3F72AF] hover:bg-[#DBE2EF] hover:text-[#112D4E]"
-                  >
-                    Go to Home
                   </Button>
                 </div>
               </div>
