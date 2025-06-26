@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { VisitorDataset } from '@/types/visitor';
 
 import { 
   FileText, 
@@ -59,6 +60,16 @@ interface VisitorResponse {
   };
 }
 
+interface VisitorDatasetResponse {
+  visitorDataset: VisitorDataset[];
+  pagination: {
+    current: number;
+    total: number;
+    count: number;
+    limit: number;
+  };
+}
+
 const Reports = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -72,6 +83,15 @@ const Reports = () => {
   const [totalCount, setTotalCount] = useState(0);
   const [selectedStatus, setSelectedStatus] = useState<string>('all');
   const [activeTab, setActiveTab] = useState('visitor-log');
+
+  // Center DB states
+  const [centerDbData, setCenterDbData] = useState<VisitorDataset[]>([]);
+  const [centerDbLoading, setCenterDbLoading] = useState(false);
+  const [centerDbError, setCenterDbError] = useState('');
+  const [centerDbSearchTerm, setCenterDbSearchTerm] = useState('');
+  const [centerDbCurrentPage, setCenterDbCurrentPage] = useState(1);
+  const [centerDbTotalPages, setCenterDbTotalPages] = useState(1);
+  const [centerDbTotalCount, setCenterDbTotalCount] = useState(0);
 
   // Cascading Filter States
   const [filters, setFilters] = useState({
@@ -148,11 +168,67 @@ const Reports = () => {
     }
   };
 
+  const fetchCenterDbData = async (page: number = 1, search: string = '') => {
+    if (!user?.id) return;
+
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) {
+      router.push('/login');
+      return;
+    }
+
+    try {
+      setCenterDbLoading(true);
+      setCenterDbError('');
+
+      const params = new URLSearchParams({
+        all: 'true',
+        page: page.toString(),
+        limit: '50',
+        ...(search && { search })
+      });
+
+      const response = await fetch(`/api/visitor-dataset?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.status === 401) {
+        localStorage.removeItem('authToken');
+        router.push('/login');
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch visitor dataset');
+      }
+
+      const data: VisitorDatasetResponse = await response.json();
+      setCenterDbData(data.visitorDataset);
+      setCenterDbCurrentPage(data.pagination.current);
+      setCenterDbTotalPages(data.pagination.total);
+      setCenterDbTotalCount(data.pagination.count);
+    } catch (error) {
+      console.error('Error fetching visitor dataset:', error);
+      setCenterDbError('Failed to load visitor dataset');
+    } finally {
+      setCenterDbLoading(false);
+    }
+  };
+
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       fetchVisitors(currentPage, searchTerm, selectedStatus);
     }
   }, [isAuthenticated, user?.id, currentPage, searchTerm, selectedStatus]);
+
+  useEffect(() => {
+    if (isAuthenticated && user?.id && activeTab === 'center-db') {
+      fetchCenterDbData(centerDbCurrentPage, centerDbSearchTerm);
+    }
+  }, [isAuthenticated, user?.id, activeTab, centerDbCurrentPage, centerDbSearchTerm]);
 
   // Frontend filtering logic
   const applyFilters = () => {
@@ -201,6 +277,10 @@ const Reports = () => {
 
   const handlePageChange = (newPage: number) => {
     setCurrentPage(newPage);
+  };
+
+  const handleCenterDbPageChange = (newPage: number) => {
+    setCenterDbCurrentPage(newPage);
   };
 
   // Apply filters whenever filter state changes
@@ -335,6 +415,44 @@ const Reports = () => {
       .join('_');
     
     const filename = `visitor-report-${new Date().toISOString().split('T')[0]}${activeFilters ? `_filtered-${activeFilters}` : ''}.csv`;
+    link.setAttribute('download', filename);
+    link.style.visibility = 'hidden';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const exportCenterDbToCSV = () => {
+    if (centerDbData.length === 0) return;
+
+    const headers = [
+      'Name', 'Email', 'Phone No', 'Company', 'City', 'State', 'Country', 
+      'Pincode', 'Created Date', 'Updated Date'
+    ];
+
+    const csvData = centerDbData.map(data => [
+      data.fullName || '-',
+      data.email || '-',
+      data.phoneNumber || '-',
+      data.company || '-',
+      data.city || '-',
+      data.state || '-',
+      data.country || '-',
+      data.pincode || '-',
+      data.createdAt ? new Date(data.createdAt).toLocaleDateString() : '-',
+      data.updatedAt ? new Date(data.updatedAt).toLocaleDateString() : '-'
+    ]);
+
+    const csvContent = [headers, ...csvData]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    link.setAttribute('href', url);
+    
+    const filename = `visitor-dataset-${new Date().toISOString().split('T')[0]}.csv`;
     link.setAttribute('download', filename);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
@@ -882,21 +1000,195 @@ const Reports = () => {
 
           {activeTab === 'center-db' && (
             <div className="space-y-6">
+              {/* Stats Cards */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-blue-100 rounded-lg">
+                        <Globe className="w-6 h-6 text-blue-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Total Records</p>
+                        <p className="text-2xl font-bold text-gray-900">{centerDbTotalCount}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-green-100 rounded-lg">
+                        <User className="w-6 h-6 text-green-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Unique Visitors</p>
+                        <p className="text-2xl font-bold text-gray-900">{centerDbData.length}</p>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-purple-100 rounded-lg">
+                        <Download className="w-6 h-6 text-purple-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Export</p>
+                        <Button 
+                          onClick={exportCenterDbToCSV}
+                          size="sm" 
+                          className="mt-1"
+                          disabled={centerDbData.length === 0}
+                        >
+                          CSV
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Search */}
+              <Card>
+                <CardContent className="p-6">
+                  <div className="relative">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
+                    <Input
+                      placeholder="Search by name, email, phone, company, city, state, or country..."
+                      value={centerDbSearchTerm}
+                      onChange={(e) => setCenterDbSearchTerm(e.target.value)}
+                      className="pl-10"
+                    />
+                  </div>
+                </CardContent>
+              </Card>
+
+              {/* Center DB Table */}
               <Card>
                 <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <Globe className="w-6 h-6 text-blue-600" />
-                    Center Database
+                  <CardTitle className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Globe className="w-6 h-6 text-blue-600" />
+                      <span>Visitor Dataset ({centerDbTotalCount} total)</span>
+                    </div>
+                    <span className="text-sm font-normal text-gray-500">
+                      Page {centerDbCurrentPage} of {centerDbTotalPages}
+                    </span>
                   </CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <div className="text-center py-12 text-gray-500">
-                    <Globe className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-                    <h3 className="text-lg font-semibold text-gray-900 mb-2">Center DB Coming Soon</h3>
-                    <p className="text-gray-600">
-                      This section will contain centralized database reports and analytics.
-                    </p>
-                  </div>
+                  {centerDbLoading ? (
+                    <div className="flex justify-center items-center py-12">
+                      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                    </div>
+                  ) : centerDbError ? (
+                    <div className="text-center py-12 text-red-600">
+                      {centerDbError}
+                    </div>
+                  ) : centerDbData.length === 0 ? (
+                    <div className="text-center py-12 text-gray-500">
+                      No visitor dataset found
+                    </div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="w-full table-auto">
+                        <thead>
+                          <tr className="border-b bg-gray-50">
+                            <th className="text-left p-3 font-semibold text-gray-900">Name</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">Email</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">Phone No</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">Company</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">City</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">State</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">Country</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">Pincode</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">Created Date</th>
+                            <th className="text-left p-3 font-semibold text-gray-900">Updated Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {centerDbData.map((data, index) => (
+                            <tr key={data._id} className={`border-b hover:bg-gray-50 ${index % 2 === 0 ? 'bg-white' : 'bg-gray-25'}`}>
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  <User className="w-4 h-4 text-gray-400" />
+                                  <span className="font-medium">{data.fullName || '-'}</span>
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  <Mail className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm">{data.email || '-'}</span>
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  <Phone className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm">{data.phoneNumber || '-'}</span>
+                                </div>
+                              </td>
+                              <td className="p-3">
+                                <div className="flex items-center gap-2">
+                                  <Building className="w-4 h-4 text-gray-400" />
+                                  <span className="text-sm">{data.company || '-'}</span>
+                                </div>
+                              </td>
+                              <td className="p-3 text-sm">{data.city || '-'}</td>
+                              <td className="p-3 text-sm">{data.state || '-'}</td>
+                              <td className="p-3 text-sm">{data.country || '-'}</td>
+                              <td className="p-3 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <Hash className="w-3 h-3 text-gray-400" />
+                                  {data.pincode || '-'}
+                                </div>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <Calendar className="w-3 h-3 text-gray-400" />
+                                  {data.createdAt ? new Date(data.createdAt).toLocaleDateString() : '-'}
+                                </div>
+                              </td>
+                              <td className="p-3 text-sm">
+                                <div className="flex items-center gap-2">
+                                  <Clock className="w-3 h-3 text-gray-400" />
+                                  {data.updatedAt ? new Date(data.updatedAt).toLocaleDateString() : '-'}
+                                </div>
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+
+                  {/* Pagination */}
+                  {centerDbTotalPages > 1 && (
+                    <div className="flex justify-center items-center mt-6 gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={centerDbCurrentPage === 1}
+                        onClick={() => handleCenterDbPageChange(centerDbCurrentPage - 1)}
+                      >
+                        Previous
+                      </Button>
+                      
+                      <span className="px-4 py-2 text-sm text-gray-600">
+                        Page {centerDbCurrentPage} of {centerDbTotalPages}
+                      </span>
+                      
+                      <Button
+                        variant="outline"
+                        disabled={centerDbCurrentPage === centerDbTotalPages}
+                        onClick={() => handleCenterDbPageChange(centerDbCurrentPage + 1)}
+                      >
+                        Next
+                      </Button>
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             </div>

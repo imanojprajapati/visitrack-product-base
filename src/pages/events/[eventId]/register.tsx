@@ -258,16 +258,57 @@ const RegistrationPage = () => {
       const data = await response.json();
       
       if (response.ok) {
+        // After OTP verification, try to fetch visitor data from dataset
+        try {
+          const visitorDataResponse = await fetch(`/api/visitor-dataset?email=${encodeURIComponent(email)}&ownerId=${encodeURIComponent(event?.ownerId || '')}`);
+          
+          if (visitorDataResponse.ok) {
+            const visitorDataFromSet = await visitorDataResponse.json();
+            
+            // Pre-fill form with existing visitor data
+            setFormData(prev => ({
+              ...prev,
+              email: email,
+              fullName: visitorDataFromSet.fullName || '',
+              phoneNumber: visitorDataFromSet.phoneNumber || '',
+              company: visitorDataFromSet.company || '',
+              city: visitorDataFromSet.city || '',
+              state: visitorDataFromSet.state || '',
+              country: visitorDataFromSet.country || '',
+              pincode: visitorDataFromSet.pincode || ''
+            }));
+            
+            toast({
+              title: "Welcome back!",
+              description: "Your information has been pre-filled. Please review and update if needed.",
+            });
+          } else {
+            // No existing data found, just pre-fill email
+            setFormData(prev => ({
+              ...prev,
+              email: email
+            }));
+            
+            toast({
+              title: "Success",
+              description: "Email verified successfully. Please fill in your details.",
+            });
+          }
+        } catch (visitorError) {
+          console.error('Error fetching visitor data:', visitorError);
+          // Continue with just email pre-filled
+          setFormData(prev => ({
+            ...prev,
+            email: email
+          }));
+          
+          toast({
+            title: "Success",
+            description: "Email verified successfully",
+          });
+        }
+        
         setCurrentStep('form');
-        // Pre-fill email in form data
-        setFormData(prev => ({
-          ...prev,
-          email: email
-        }));
-        toast({
-          title: "Success",
-          description: "Email verified successfully",
-        });
       } else {
         toast({
           title: "Error",
@@ -340,6 +381,31 @@ const RegistrationPage = () => {
 
       if (response.ok) {
         const result = await response.json();
+        
+        // Save/update visitor data in dataset for future use
+        try {
+          await fetch('/api/visitor-dataset', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ownerId: event?.ownerId || '',
+              fullName: formData.fullName,
+              email: formData.email,
+              phoneNumber: formData.phoneNumber,
+              company: formData.company || '',
+              city: formData.city || '',
+              state: formData.state || '',
+              country: formData.country || '',
+              pincode: formData.pincode || ''
+            }),
+          });
+          console.log('✅ Visitor dataset updated/created for owner:', event?.ownerId);
+        } catch (datasetError) {
+          console.error('Error saving visitor dataset:', datasetError);
+          // Don't fail the registration if dataset save fails
+        }
         
         // Store visitor data for success page
         setVisitorData({
