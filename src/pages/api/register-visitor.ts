@@ -102,7 +102,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       
       // Registration metadata
       status: status || 'Registration',
-      entryType: 'Online',
+      entryType: '-',
       registrationDate: new Date(),
       visitorRegistrationDate: visitorRegistrationDate || new Date().toISOString().split('T')[0],
       

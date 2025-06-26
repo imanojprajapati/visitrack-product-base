@@ -260,22 +260,35 @@ const RegistrationPage = () => {
       if (response.ok) {
         // After OTP verification, try to fetch visitor data from dataset
         try {
-          const visitorDataResponse = await fetch(`/api/visitor-dataset?email=${encodeURIComponent(email)}&ownerId=${encodeURIComponent(event?.ownerId || '')}`);
+          console.log('🔍 [Registration] Looking up visitor data for:', email);
           
-          if (visitorDataResponse.ok) {
-            const visitorDataFromSet = await visitorDataResponse.json();
-            
+          const visitorLookupResponse = await fetch('/api/visitor-dataset/lookup', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 
+              email: email,
+              eventId: eventId 
+            }),
+          });
+
+          const lookupData = await visitorLookupResponse.json();
+
+          if (visitorLookupResponse.ok && lookupData.found) {
             // Pre-fill form with existing visitor data
+            console.log('✅ [Registration] Found existing data, pre-filling form');
+            
             setFormData(prev => ({
               ...prev,
               email: email,
-              fullName: visitorDataFromSet.fullName || '',
-              phoneNumber: visitorDataFromSet.phoneNumber || '',
-              company: visitorDataFromSet.company || '',
-              city: visitorDataFromSet.city || '',
-              state: visitorDataFromSet.state || '',
-              country: visitorDataFromSet.country || '',
-              pincode: visitorDataFromSet.pincode || ''
+              fullName: lookupData.data.fullName || '',
+              phoneNumber: lookupData.data.phoneNumber || '',
+              company: lookupData.data.company || '',
+              city: lookupData.data.city || '',
+              state: lookupData.data.state || '',
+              country: lookupData.data.country || '',
+              pincode: lookupData.data.pincode || ''
             }));
             
             toast({
@@ -284,6 +297,8 @@ const RegistrationPage = () => {
             });
           } else {
             // No existing data found, just pre-fill email
+            console.log('📝 [Registration] No existing data found, starting fresh');
+            
             setFormData(prev => ({
               ...prev,
               email: email
@@ -304,7 +319,7 @@ const RegistrationPage = () => {
           
           toast({
             title: "Success",
-            description: "Email verified successfully",
+            description: "Email verified successfully. Please fill in your details.",
           });
         }
         
