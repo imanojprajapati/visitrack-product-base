@@ -82,49 +82,138 @@ const QuickScanner = () => {
   const startScanning = async () => {
     try {
       setCameraError('');
+      console.log('Starting camera...');
       
-      // Request camera permission
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          facingMode: 'environment', // Use back camera if available
-          width: { ideal: 640 },
-          height: { ideal: 480 }
+      // Check if getUserMedia is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Camera access not supported in this browser');
+      }
+      
+      // Try different camera constraints
+      const constraints = [
+        {
+          video: {
+            facingMode: 'environment',
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
+        },
+        {
+          video: {
+            width: { ideal: 640 },
+            height: { ideal: 480 }
+          }
+        },
+        {
+          video: true
         }
-      });
+      ];
+
+      let stream: MediaStream | null = null;
+      
+      for (const constraint of constraints) {
+        try {
+          console.log('Trying constraint:', constraint);
+          stream = await navigator.mediaDevices.getUserMedia(constraint);
+          console.log('Camera stream obtained:', stream);
+          break;
+        } catch (constraintError) {
+          console.log('Constraint failed:', constraintError);
+          continue;
+        }
+      }
+
+      if (!stream) {
+        throw new Error('Unable to access camera with any constraints');
+      }
 
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
+        const video = videoRef.current;
+        
+        console.log('Setting video source...');
+        video.srcObject = stream;
         streamRef.current = stream;
         setIsScanning(true);
         
-        // Start scanning loop
-        videoRef.current.onloadedmetadata = () => {
-          if (videoRef.current) {
-            videoRef.current.play();
+        const handleCanPlay = async () => {
+          try {
+            console.log('Video can play, attempting to start...');
+            await video.play();
+            console.log('Video started playing successfully');
             startScanLoop();
+          } catch (playError) {
+            console.error('Video play error:', playError);
+            setCameraError('Unable to start video playback. Please try again.');
           }
         };
+
+        const handleLoadedMetadata = () => {
+          console.log('Video metadata loaded, dimensions:', video.videoWidth, 'x', video.videoHeight);
+          if (video.videoWidth > 0 && video.videoHeight > 0) {
+            handleCanPlay();
+          }
+        };
+
+        const handleError = (error: any) => {
+          console.error('Video error:', error);
+          setCameraError('Video playback error occurred.');
+        };
+
+        // Add event listeners
+        video.onloadedmetadata = handleLoadedMetadata;
+        video.oncanplay = handleCanPlay;
+        video.onerror = handleError;
+        
+        // Force load
+        video.load();
+        
+        // Fallback attempts
+        setTimeout(() => {
+          if (video.readyState >= 2) {
+            console.log('Fallback: Video ready, attempting play...');
+            handleCanPlay();
+          }
+        }, 500);
+        
+        setTimeout(() => {
+          if (video.readyState >= 1 && video.videoWidth > 0) {
+            console.log('Second fallback: Video has metadata, attempting play...');
+            handleCanPlay();
+          }
+        }, 1000);
       }
     } catch (error: any) {
       console.error('Camera access error:', error);
-      setCameraError('Unable to access camera. Please ensure camera permissions are granted.');
+      setCameraError(`Unable to access camera: ${error.message}`);
       toast({
         title: "Camera Error",
-        description: "Unable to access camera. Please check permissions.",
+        description: `Unable to access camera: ${error.message}`,
         variant: "destructive"
       });
     }
   };
 
   const stopScanning = () => {
+    console.log('Stopping scanner...');
+    
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current.getTracks().forEach(track => {
+        console.log('Stopping track:', track.kind);
+        track.stop();
+      });
       streamRef.current = null;
     }
     
     if (scanIntervalRef.current) {
       clearInterval(scanIntervalRef.current);
       scanIntervalRef.current = null;
+    }
+    
+    // Clear video source
+    if (videoRef.current) {
+      videoRef.current.srcObject = null;
+      videoRef.current.onloadedmetadata = null;
+      videoRef.current.oncanplay = null;
     }
     
     setIsScanning(false);
@@ -291,6 +380,29 @@ const QuickScanner = () => {
     setScanCount(0);
   };
 
+  const testCamera = async () => {
+    try {
+      console.log('Testing camera access...');
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      console.log('Camera test successful:', stream);
+      
+      toast({
+        title: "Camera Test Successful",
+        description: "Camera is accessible and working",
+      });
+      
+      // Stop the test stream
+      stream.getTracks().forEach(track => track.stop());
+    } catch (error: any) {
+      console.error('Camera test failed:', error);
+      toast({
+        title: "Camera Test Failed",
+        description: error.message,
+        variant: "destructive"
+      });
+    }
+  };
+
   if (isLoading) {
     return (
       <AdminLayout>
@@ -343,6 +455,9 @@ const QuickScanner = () => {
                         className="w-full h-full object-cover"
                         playsInline
                         muted
+                        autoPlay
+                        controls={false}
+                        style={{ objectFit: 'cover' }}
                       />
                       <canvas
                         ref={canvasRef}
@@ -390,37 +505,61 @@ const QuickScanner = () => {
                 )}
 
                 {/* Controls */}
-                <div className="flex gap-2">
-                  {!isScanning ? (
-                    <Button
-                      onClick={startScanning}
-                      className="flex-1 flex items-center gap-2"
-                    >
-                      <Camera className="w-4 h-4" />
-                      Start Scanning
-                    </Button>
-                  ) : (
-                    <Button
-                      onClick={stopScanning}
-                      variant="destructive"
-                      className="flex-1 flex items-center gap-2"
-                    >
-                      <CameraOff className="w-4 h-4" />
-                      Stop Scanning
-                    </Button>
-                  )}
+                <div className="flex flex-col gap-2">
+                  <div className="flex gap-2">
+                    {!isScanning ? (
+                      <Button
+                        onClick={startScanning}
+                        className="flex-1 flex items-center gap-2"
+                      >
+                        <Camera className="w-4 h-4" />
+                        Start Scanning
+                      </Button>
+                    ) : (
+                      <Button
+                        onClick={stopScanning}
+                        variant="destructive"
+                        className="flex-1 flex items-center gap-2"
+                      >
+                        <CameraOff className="w-4 h-4" />
+                        Stop Scanning
+                      </Button>
+                    )}
+                    
+                    {scanResults.length > 0 && (
+                      <Button
+                        onClick={clearResults}
+                        variant="outline"
+                        className="flex items-center gap-2"
+                      >
+                        <RotateCcw className="w-4 h-4" />
+                        Clear
+                      </Button>
+                    )}
+                  </div>
                   
-                  {scanResults.length > 0 && (
+                  {!isScanning && (
                     <Button
-                      onClick={clearResults}
+                      onClick={testCamera}
                       variant="outline"
+                      size="sm"
                       className="flex items-center gap-2"
                     >
-                      <RotateCcw className="w-4 h-4" />
-                      Clear
+                      <Camera className="w-3 h-3" />
+                      Test Camera Access
                     </Button>
                   )}
                 </div>
+
+                {/* Debug Info */}
+                {isScanning && (
+                  <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
+                    <div>Scanner Status: {isScanning ? 'Active' : 'Inactive'}</div>
+                    <div>Video Ready State: {videoRef.current?.readyState || 'N/A'}</div>
+                    <div>Video Dimensions: {videoRef.current?.videoWidth || 0} x {videoRef.current?.videoHeight || 0}</div>
+                    <div>Stream Active: {streamRef.current?.active ? 'Yes' : 'No'}</div>
+                  </div>
+                )}
 
                 {/* Instructions */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
