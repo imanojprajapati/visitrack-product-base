@@ -193,11 +193,11 @@ export default function AdminDashboard() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
             <Card className="bg-gradient-to-r from-[#112D4E] to-[#3F72AF] text-white border-0">
               <CardContent className="p-4 sm:p-6">
-                <div className="flex items-center justify-between">
-                  <div>
+              <div className="flex items-center justify-between">
+                <div>
                     <p className="text-[#DBE2EF] text-xs sm:text-sm">Total Events</p>
                     <p className="text-2xl sm:text-3xl font-bold">{loading ? '...' : stats.totalEvents}</p>
-                  </div>
+                </div>
                   <CalendarDays className="h-6 w-6 sm:h-8 sm:w-8 opacity-75" />
                 </div>
               </CardContent>
@@ -205,7 +205,7 @@ export default function AdminDashboard() {
 
             <Card className="border-[#DBE2EF]">
               <CardContent className="p-4 sm:p-6">
-                <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between">
                   <div>
                     <p className="text-[#3F72AF] text-xs sm:text-sm">Total Registrations</p>
                     <p className="text-2xl sm:text-3xl font-bold text-[#112D4E]">{loading ? '...' : stats.totalAttendees}</p>
@@ -238,7 +238,7 @@ export default function AdminDashboard() {
                 </div>
               </CardContent>
             </Card>
-          </div>
+                    </div>
 
           {/* Charts Section */}
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
