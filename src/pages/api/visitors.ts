@@ -56,7 +56,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
 
       // Get query parameters for filtering and pagination
-      const { page = '1', limit = '10', eventId, status, search } = req.query;
+      const { 
+        page = '1', 
+        limit = '10', 
+        eventId, 
+        status, 
+        search,
+        eventName,
+        source,
+        getFilterOptions
+      } = req.query;
+
+      console.log('🔍 [Visitors API] Query parameters:', {
+        page, limit, eventId, status, search, eventName, source
+      });
+      
       const pageNum = parseInt(page as string);
       const limitNum = parseInt(limit as string);
       const skip = (pageNum - 1) * limitNum;
@@ -72,6 +86,15 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         filter.status = status;
       }
 
+      // Additional filter parameters
+      if (eventName && eventName !== 'all') {
+        filter.eventName = { $regex: eventName, $options: 'i' };
+      }
+
+      if (source && source !== 'all') {
+        filter.source = source;
+      }
+
       if (search) {
         filter.$or = [
           { fullName: { $regex: search, $options: 'i' } },
@@ -79,6 +102,25 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           { phoneNumber: { $regex: search, $options: 'i' } },
           { company: { $regex: search, $options: 'i' } }
         ];
+      }
+
+      console.log('🔍 [Visitors API] Final filter object:', JSON.stringify(filter, null, 2));
+
+      // If requesting filter options, return unique values for all filter fields
+      if (getFilterOptions === 'true') {
+        // Get events from events collection
+        const events = await db.collection('events')
+          .find({ ownerId: userInfo.ownerId })
+          .toArray();
+
+        const filterOptions = {
+          eventNames: events.map((event: any) => event.eventName).filter(Boolean).sort(),
+          statuses: ['Registration', 'Visited'],
+          sources: ['Website', 'At Event']
+        };
+
+        console.log('🔍 [Visitors API] Returning filter options:', filterOptions);
+        return res.status(200).json({ filterOptions });
       }
 
       // Get total count for pagination

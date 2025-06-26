@@ -105,7 +105,7 @@ const Reports = () => {
     onSearch: useCallback((searchTerm: string) => {
       if (isAuthenticated && user?.id) {
         setCurrentPage(1);
-        fetchVisitors(1, searchTerm, true);
+        fetchVisitors(1, searchTerm);
       }
     }, [isAuthenticated, user?.id])
   });
@@ -136,11 +136,6 @@ const Reports = () => {
   const [filters, setFilters] = useState({
     eventName: 'all',
     status: 'all',
-    eventLocation: 'all',
-    state: 'all',
-    city: 'all',
-    country: 'all',
-    pincode: 'all',
     source: 'all'
   });
   const [showFilters, setShowFilters] = useState(false);
@@ -148,11 +143,7 @@ const Reports = () => {
   // Filter options (unique values from data)
   const [filterOptions, setFilterOptions] = useState({
     eventNames: [] as string[],
-    eventLocations: [] as string[],
-    states: [] as string[],
-    cities: [] as string[],
-    countries: [] as string[],
-    pincodes: [] as string[],
+    statuses: [] as string[],
     sources: [] as string[]
   });
 
@@ -167,7 +158,7 @@ const Reports = () => {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  const fetchVisitors = async (page: number = 1, search: string = '', useFilters: boolean = true) => {
+  const fetchVisitors = async (page: number = 1, search: string = '') => {
     if (!user?.id) return;
 
     const authToken = localStorage.getItem('authToken');
@@ -189,37 +180,20 @@ const Reports = () => {
         params.append('search', search.trim());
       }
       
-      // Apply filters if useFilters is true
-      if (useFilters) {
-        if (filters.eventName && filters.eventName !== 'all') {
-          params.append('eventName', filters.eventName);
-        }
-        if (filters.status && filters.status !== 'all') {
-          params.append('status', filters.status);
-        }
-        if (filters.eventLocation && filters.eventLocation !== 'all') {
-          params.append('eventLocation', filters.eventLocation);
-        }
-        if (filters.state && filters.state !== 'all') {
-          params.append('state', filters.state);
-        }
-        if (filters.city && filters.city !== 'all') {
-          params.append('city', filters.city);
-        }
-        if (filters.country && filters.country !== 'all') {
-          params.append('country', filters.country);
-        }
-        if (filters.pincode && filters.pincode !== 'all') {
-          params.append('pincode', filters.pincode);
-        }
-        if (filters.source && filters.source !== 'all') {
-          params.append('source', filters.source);
-        }
-      } else {
-        // Use selectedStatus for backward compatibility
-        if (selectedStatus && selectedStatus !== 'all') {
-          params.append('status', selectedStatus);
-        }
+      // Apply filters
+      if (filters.eventName && filters.eventName !== 'all') {
+        params.append('eventName', filters.eventName);
+      }
+      if (filters.status && filters.status !== 'all') {
+        params.append('status', filters.status);
+      }
+      if (filters.source && filters.source !== 'all') {
+        params.append('source', filters.source);
+      }
+      
+      // Use selectedStatus for backward compatibility
+      if (selectedStatus && selectedStatus !== 'all' && filters.status === 'all') {
+        params.append('status', selectedStatus);
       }
 
       const response = await fetch(`/api/visitors?${params}`, {
@@ -245,9 +219,6 @@ const Reports = () => {
       setTotalPages(data.pagination.total);
       setTotalCount(data.pagination.count);
       
-      // Update filter options with unique values from all data
-      updateFilterOptions(data.visitors);
-      
       console.log(`📊 [Reports] Fetched ${data.visitors.length} visitors (page ${data.pagination.current}/${data.pagination.total})`);
     } catch (error) {
       console.error('Error fetching visitors:', error);
@@ -257,35 +228,35 @@ const Reports = () => {
     }
   };
 
-  // Update filter options with unique values
-  const updateFilterOptions = (visitorData: Visitor[]) => {
-    const eventNames = Array.from(new Set(visitorData.map(v => v.eventName).filter(Boolean)));
-    const eventLocations = Array.from(new Set(visitorData.map(v => v.eventLocation).filter(Boolean)));
-    const states = Array.from(new Set(visitorData.map(v => v.state).filter(Boolean)));
-    const cities = Array.from(new Set(visitorData.map(v => v.city).filter(Boolean)));
-    const countries = Array.from(new Set(visitorData.map(v => v.country).filter(Boolean)));
-    const pincodes = Array.from(new Set(visitorData.map(v => v.pincode).filter(Boolean)));
-    const sources = Array.from(new Set(visitorData.map(v => v.source).filter(Boolean)));
+  // Fetch filter options from API
+  const fetchFilterOptions = async () => {
+    if (!user?.id) return;
 
-    setFilterOptions({
-      eventNames: eventNames.sort(),
-      eventLocations: eventLocations.sort(),
-      states: states.sort(),
-      cities: cities.sort(),
-      countries: countries.sort(),
-      pincodes: pincodes.sort(),
-      sources: sources.sort()
-    });
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) return;
+
+    try {
+      const response = await fetch('/api/visitors?getFilterOptions=true', {
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setFilterOptions(data.filterOptions);
+        console.log('📊 [Reports] Fetched filter options:', data.filterOptions);
+      }
+    } catch (error) {
+      console.error('Error fetching filter options:', error);
+    }
   };
 
   // Handle filter changes
   const handleFilterChange = (filterKey: string, value: string) => {
     setFilters(prev => ({ ...prev, [filterKey]: value }));
     setCurrentPage(1);
-    // Trigger immediate fetch with new filters
-    setTimeout(() => {
-      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm, true);
-    }, 100);
   };
 
   const fetchCenterDbData = async (page: number = 1, search: string = '') => {
@@ -343,7 +314,8 @@ const Reports = () => {
   // Initial data fetch
   useEffect(() => {
     if (isAuthenticated && user?.id) {
-      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm, true);
+      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm);
+      fetchFilterOptions(); // Fetch filter options separately
     }
   }, [isAuthenticated, user?.id]);
 
@@ -351,14 +323,14 @@ const Reports = () => {
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       setCurrentPage(1);
-      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm, true);
+      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm);
     }
   }, [filters]);
 
   // Fetch visitors when page changes (keep current search and filters)
   useEffect(() => {
     if (isAuthenticated && user?.id && currentPage > 1) {
-      fetchVisitors(currentPage, visitorLogSearch.debouncedSearchTerm, true);
+      fetchVisitors(currentPage, visitorLogSearch.debouncedSearchTerm);
     }
   }, [currentPage]);
 
@@ -666,17 +638,12 @@ const Reports = () => {
     setFilters({
       eventName: 'all',
       status: 'all',
-      eventLocation: 'all',
-      state: 'all',
-      city: 'all',
-      country: 'all',
-      pincode: 'all',
       source: 'all'
     });
     setSelectedStatus('all');
     visitorLogSearch.clearSearch();
     setCurrentPage(1);
-    fetchVisitors(1, '', true);
+    fetchVisitors(1, '');
   };
 
   // Show loading while checking authentication
@@ -872,7 +839,7 @@ const Reports = () => {
                   {/* Working Filter Options */}
                   {showFilters && (
                     <div className="border-t pt-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {/* Event Name Filter */}
                         <div>
                           <Label className="text-sm font-medium text-gray-700 mb-1">Event Name</Label>
@@ -900,96 +867,9 @@ const Reports = () => {
                             </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="all">All Status</SelectItem>
-                              <SelectItem value="Registration">Registration</SelectItem>
-                              <SelectItem value="Visited">Visited</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Event Location Filter */}
-                        <div>
-                          <Label className="text-sm font-medium text-gray-700 mb-1">Event Location</Label>
-                          <Select value={filters.eventLocation} onValueChange={(value) => handleFilterChange('eventLocation', value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="All Locations" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Locations</SelectItem>
-                              {filterOptions.eventLocations.map((location) => (
-                                <SelectItem key={location} value={location}>
-                                  {location}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* State Filter */}
-                        <div>
-                          <Label className="text-sm font-medium text-gray-700 mb-1">State</Label>
-                          <Select value={filters.state} onValueChange={(value) => handleFilterChange('state', value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="All States" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All States</SelectItem>
-                              {filterOptions.states.map((state) => (
-                                <SelectItem key={state} value={state}>
-                                  {state}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* City Filter */}
-                        <div>
-                          <Label className="text-sm font-medium text-gray-700 mb-1">City</Label>
-                          <Select value={filters.city} onValueChange={(value) => handleFilterChange('city', value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="All Cities" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Cities</SelectItem>
-                              {filterOptions.cities.map((city) => (
-                                <SelectItem key={city} value={city}>
-                                  {city}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Country Filter */}
-                        <div>
-                          <Label className="text-sm font-medium text-gray-700 mb-1">Country</Label>
-                          <Select value={filters.country} onValueChange={(value) => handleFilterChange('country', value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="All Countries" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Countries</SelectItem>
-                              {filterOptions.countries.map((country) => (
-                                <SelectItem key={country} value={country}>
-                                  {country}
-                                </SelectItem>
-                              ))}
-                            </SelectContent>
-                          </Select>
-                        </div>
-
-                        {/* Pincode Filter */}
-                        <div>
-                          <Label className="text-sm font-medium text-gray-700 mb-1">Pincode</Label>
-                          <Select value={filters.pincode} onValueChange={(value) => handleFilterChange('pincode', value)}>
-                            <SelectTrigger className="w-full">
-                              <SelectValue placeholder="All Pincodes" />
-                            </SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="all">All Pincodes</SelectItem>
-                              {filterOptions.pincodes.map((pincode) => (
-                                <SelectItem key={pincode} value={pincode}>
-                                  {pincode}
+                              {filterOptions.statuses.map((status) => (
+                                <SelectItem key={status} value={status}>
+                                  {status}
                                 </SelectItem>
                               ))}
                             </SelectContent>
@@ -1066,7 +946,11 @@ const Reports = () => {
                   </div>
                 ) : visitors.length === 0 ? (
                   <div className="text-center py-12 text-gray-500">
-                    No visitors found
+                    <div className="flex flex-col items-center gap-2">
+                      <User className="w-12 h-12 text-gray-300" />
+                      <p className="text-lg font-medium">Data not found</p>
+                      <p className="text-sm">No visitors match your current filters or search criteria.</p>
+                    </div>
                   </div>
                 ) : (
                   <div className="overflow-x-auto">
