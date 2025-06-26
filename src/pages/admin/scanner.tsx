@@ -17,7 +17,8 @@ import {
   Calendar,
   Building,
   RotateCcw,
-  Zap
+  Zap,
+  AlertTriangle
 } from 'lucide-react';
 
 interface ScannedVisitor {
@@ -258,6 +259,33 @@ const QuickScanner = () => {
           description: `${result.visitorName} checked in via QR code`,
         });
         
+      } else if (response.status === 409 && result.alreadyVisited) {
+        // Handle already visited visitors
+        const scanResult: ScanResult = {
+          success: false,
+          message: result.message,
+          visitor: {
+            _id: result.visitorId,
+            fullName: result.visitorName,
+            email: result.visitorEmail || '',
+            phoneNumber: result.visitorPhone || '',
+            company: result.visitorCompany || '',
+            eventName: result.eventName || '',
+            eventLocation: result.eventLocation || '',
+            status: result.previousStatus,
+            entryType: result.previousEntryType,
+            scannedAt: result.visitedAt ? new Date(result.visitedAt).toLocaleString() : 'Unknown'
+          },
+          error: 'Already Visited'
+        };
+
+        setScanResults(prev => [scanResult, ...prev]);
+
+        toast({
+          title: "⚠️ Already Visited",
+          description: `${result.visitorName} has already visited`,
+          variant: "destructive"
+        });
       } else {
         const scanResult: ScanResult = {
           success: false,
@@ -507,47 +535,68 @@ const QuickScanner = () => {
                 </div>
               ) : (
                 <div className="space-y-4 max-h-96 overflow-y-auto">
-                  {scanResults.map((result, index) => (
-                    <div
-                      key={index}
-                      className={`border rounded-lg p-4 ${
-                        result.success
-                          ? 'border-green-200 bg-green-50'
-                          : 'border-red-200 bg-red-50'
-                      }`}
-                    >
-                      <div className="flex items-start justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          {result.success ? (
-                            <CheckCircle className="w-5 h-5 text-green-600" />
-                          ) : (
-                            <XCircle className="w-5 h-5 text-red-600" />
-                          )}
-                          <span className={`font-medium ${
-                            result.success ? 'text-green-900' : 'text-red-900'
-                          }`}>
-                            {result.success ? 'Success' : 'Failed'}
+                  {scanResults.map((result, index) => {
+                    const isAlreadyVisited = result.error === 'Already Visited';
+                    
+                    return (
+                      <div
+                        key={index}
+                        className={`border rounded-lg p-4 ${
+                          result.success
+                            ? 'border-green-200 bg-green-50'
+                            : isAlreadyVisited
+                            ? 'border-yellow-200 bg-yellow-50'
+                            : 'border-red-200 bg-red-50'
+                        }`}
+                      >
+                        <div className="flex items-start justify-between mb-2">
+                          <div className="flex items-center gap-2">
+                            {result.success ? (
+                              <CheckCircle className="w-5 h-5 text-green-600" />
+                            ) : isAlreadyVisited ? (
+                              <AlertTriangle className="w-5 h-5 text-yellow-600" />
+                            ) : (
+                              <XCircle className="w-5 h-5 text-red-600" />
+                            )}
+                            <span className={`font-medium ${
+                              result.success ? 'text-green-900' : 
+                              isAlreadyVisited ? 'text-yellow-900' : 
+                              'text-red-900'
+                            }`}>
+                              {result.success ? 'Success' : 
+                               isAlreadyVisited ? 'Already Visited' : 
+                               'Failed'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-gray-500">
+                            {result.visitor?.scannedAt || new Date().toLocaleString()}
                           </span>
                         </div>
-                        <span className="text-xs text-gray-500">
-                          {result.visitor?.scannedAt || new Date().toLocaleString()}
-                        </span>
-                      </div>
 
-                      <p className={`text-sm mb-2 ${
-                        result.success ? 'text-green-800' : 'text-red-800'
-                      }`}>
-                        {result.message}
-                      </p>
+                        <p className={`text-sm mb-2 ${
+                          result.success ? 'text-green-800' : 
+                          isAlreadyVisited ? 'text-yellow-800' : 
+                          'text-red-800'
+                        }`}>
+                          {result.message}
+                        </p>
 
                       {result.visitor && (
                         <div className="space-y-2">
                           <div className="flex items-center gap-2 text-sm">
                             <User className="w-3 h-3" />
                             <span className="font-medium">{result.visitor.fullName}</span>
-                            <Badge variant="outline" className="ml-auto">
-                              {result.visitor.entryType}
-                            </Badge>
+                            <div className="ml-auto flex gap-1">
+                              <Badge variant="outline">
+                                {result.visitor.entryType}
+                              </Badge>
+                              <Badge 
+                                variant={result.visitor.status === 'Visited' ? 'default' : 'secondary'}
+                                className={result.visitor.status === 'Visited' ? 'bg-green-100 text-green-800' : ''}
+                              >
+                                {result.visitor.status}
+                              </Badge>
+                            </div>
                           </div>
                           
                           {result.visitor.eventName && (
@@ -567,12 +616,15 @@ const QuickScanner = () => {
                       )}
 
                       {result.error && (
-                        <div className="text-xs text-red-600 mt-2 bg-red-100 p-2 rounded">
+                        <div className={`text-xs mt-2 p-2 rounded ${
+                          isAlreadyVisited ? 'text-yellow-600 bg-yellow-100' : 'text-red-600 bg-red-100'
+                        }`}>
                           {result.error}
                         </div>
                       )}
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               )}
             </CardContent>

@@ -105,6 +105,26 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       });
     }
 
+    // Check if visitor status is already "Visited"
+    if (visitor.status === 'Visited') {
+      return res.status(409).json({
+        message: `${visitor.fullName} has already visited`,
+        visitorId: cleanVisitorId,
+        visitorName: visitor.fullName,
+        visitorEmail: visitor.email,
+        visitorPhone: visitor.phoneNumber,
+        visitorCompany: visitor.company,
+        eventName: visitor.eventName,
+        eventLocation: visitor.eventLocation,
+        previousEntryType: visitor.entryType,
+        newEntryType: visitor.entryType, // Keep current entry type
+        previousStatus: visitor.status,
+        newStatus: visitor.status, // Keep current status
+        alreadyVisited: true,
+        visitedAt: visitor.lastScannedAt || visitor.updatedAt
+      });
+    }
+
     // Check if visitor is already checked in via QR
     if (visitor.entryType && ['QR', 'qr', 'QR Code', 'qrcode'].includes(visitor.entryType)) {
       return res.status(200).json({
