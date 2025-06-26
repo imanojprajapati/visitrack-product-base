@@ -779,9 +779,9 @@ const FormBuilder = () => {
                           </div>
                         ) : (
                           getAvailableEvents().map((event) => (
-                            <SelectItem key={event._id} value={event._id}>
-                              {event.eventName}
-                            </SelectItem>
+                          <SelectItem key={event._id} value={event._id}>
+                            {event.eventName}
+                          </SelectItem>
                           ))
                         )}
                       </SelectContent>
@@ -897,9 +897,9 @@ const FormBuilder = () => {
                           </div>
                         ) : (
                           getAvailableEventsForEdit().map((event) => (
-                            <SelectItem key={event._id} value={event._id}>
-                              {event.eventName}
-                            </SelectItem>
+                          <SelectItem key={event._id} value={event._id}>
+                            {event.eventName}
+                          </SelectItem>
                           ))
                         )}
                       </SelectContent>

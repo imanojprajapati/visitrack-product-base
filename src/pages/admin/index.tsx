@@ -1,18 +1,159 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Head from 'next/head';
 import { useAuth } from '../../context/AuthContext';
 import AdminLayout from '../../components/AdminLayout';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
+import { CalendarDays, Users, TrendingUp, Eye } from 'lucide-react';
+
+interface DashboardStats {
+  totalEvents: number;
+  totalAttendees: number;
+  visitedCount: number;
+  recentRegistrations: number;
+}
+
+interface EventData {
+  eventName: string;
+  attendeeCount: number;
+  visitedCount: number;
+}
+
+interface StatusData {
+  name: string;
+  value: number;
+  color: string;
+}
+
+interface RegistrationTrend {
+  date: string;
+  registrations: number;
+  visited: number;
+}
+
+const chartConfig = {
+  registrations: {
+    label: "Registrations",
+    color: "#3F72AF",
+  },
+  visited: {
+    label: "Visited",
+    color: "#112D4E",
+  },
+  attendeeCount: {
+    label: "Total Attendees",
+    color: "#3F72AF",
+  },
+  visitedCount: {
+    label: "Visited",
+    color: "#112D4E",
+  },
+};
 
 export default function AdminDashboard() {
   const { isAuthenticated, isLoading, user, username, ownerId, role } = useAuth();
   const router = useRouter();
+  const [stats, setStats] = useState<DashboardStats>({
+    totalEvents: 0,
+    totalAttendees: 0,
+    visitedCount: 0,
+    recentRegistrations: 0
+  });
+  const [eventData, setEventData] = useState<EventData[]>([]);
+  const [statusData, setStatusData] = useState<StatusData[]>([]);
+  const [registrationTrend, setRegistrationTrend] = useState<RegistrationTrend[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/login');
     }
   }, [isAuthenticated, isLoading, router]);
+
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      fetchDashboardData();
+    }
+  }, [user?.id, isAuthenticated]);
+
+  const fetchDashboardData = async () => {
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) return;
+
+    try {
+      setLoading(true);
+
+      // Fetch events
+      const eventsResponse = await fetch('/api/events', {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      const events = eventsResponse.ok ? await eventsResponse.json() : [];
+
+      // Fetch visitors
+      const visitorsResponse = await fetch('/api/visitors?limit=1000', {
+        headers: { 'Authorization': `Bearer ${authToken}` }
+      });
+      const visitorsData = visitorsResponse.ok ? await visitorsResponse.json() : { visitors: [] };
+      const visitors = visitorsData.visitors || [];
+
+      // Calculate stats
+      const today = new Date().toISOString().split('T')[0];
+      const visitedCount = visitors.filter((v: any) => v.status.toLowerCase() === 'visited').length;
+      const recentRegistrations = visitors.filter((v: any) => v.visitorRegistrationDate === today).length;
+
+      setStats({
+        totalEvents: events.length,
+        totalAttendees: visitors.length,
+        visitedCount,
+        recentRegistrations
+      });
+
+      // Prepare event data for bar chart
+      const eventAttendees = events.map((event: any) => {
+        const eventVisitors = visitors.filter((v: any) => v.eventId === event._id);
+        const visitedVisitors = eventVisitors.filter((v: any) => v.status.toLowerCase() === 'visited');
+        return {
+          eventName: event.eventName.length > 15 ? event.eventName.substring(0, 15) + '...' : event.eventName,
+          attendeeCount: eventVisitors.length,
+          visitedCount: visitedVisitors.length
+        };
+      });
+      setEventData(eventAttendees.slice(0, 6)); // Show top 6 events
+
+      // Prepare status data for pie chart
+      const registrationCount = visitors.filter((v: any) => v.status.toLowerCase() === 'registration').length;
+      setStatusData([
+        { name: 'Registration', value: registrationCount, color: '#3F72AF' },
+        { name: 'Visited', value: visitedCount, color: '#112D4E' }
+      ]);
+
+      // Prepare registration trend data (last 7 days)
+      const trendData = [];
+      for (let i = 6; i >= 0; i--) {
+        const date = new Date();
+        date.setDate(date.getDate() - i);
+        const dateStr = date.toISOString().split('T')[0];
+        const dayRegistrations = visitors.filter((v: any) => v.visitorRegistrationDate === dateStr).length;
+        const dayVisited = visitors.filter((v: any) => 
+          v.visitorRegistrationDate === dateStr && v.status.toLowerCase() === 'visited'
+        ).length;
+        
+        trendData.push({
+          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          registrations: dayRegistrations,
+          visited: dayVisited
+        });
+      }
+      setRegistrationTrend(trendData);
+
+    } catch (error) {
+      console.error('Error fetching dashboard data:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -34,179 +175,196 @@ export default function AdminDashboard() {
       </Head>
 
       <AdminLayout>
-        <div className="space-y-6 bg-[#F9F7F7] min-h-screen p-6">
+        <div className="space-y-4 sm:space-y-6 bg-[#F9F7F7] min-h-screen p-4 sm:p-6">
           {/* Welcome Header */}
-          <div className="mb-8">
-            <h1 className="text-3xl font-bold text-[#112D4E] mb-2">
+          <div className="mb-6 sm:mb-8">
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#112D4E] mb-2">
               Welcome to Admin Panel
             </h1>
-            <p className="text-[#3F72AF]">
+            <p className="text-[#3F72AF] text-sm sm:text-base">
               Hello, <span className="font-semibold text-[#112D4E]">{user?.fullName}</span>! 
               Welcome back to your Visitrack dashboard.
             </p>
           </div>
 
-          {/* User Info Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-[#DBE2EF]">
-              <div className="flex items-center">
-                <div className="p-3 rounded-full bg-[#DBE2EF]">
-                  <svg className="w-6 h-6 text-[#3F72AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path>
-                  </svg>
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-[#3F72AF]">Username</p>
-                  <p className="text-lg font-semibold text-[#112D4E]">{username}</p>
-                </div>
-              </div>
-            </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-[#DBE2EF]">
-              <div className="flex items-center">
-                <div className="p-3 rounded-full bg-[#DBE2EF]">
-                  <svg className="w-6 h-6 text-[#3F72AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-[#3F72AF]">Role</p>
-                  <p className="text-lg font-semibold text-[#112D4E] capitalize">{role}</p>
-                </div>
-              </div>
-            </div>
 
-            <div className="bg-white p-6 rounded-lg shadow-sm border border-[#DBE2EF]">
-              <div className="flex items-center">
-                <div className="p-3 rounded-full bg-[#DBE2EF]">
-                  <svg className="w-6 h-6 text-[#3F72AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path>
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
-                  </svg>
+          {/* Stats Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-6 sm:mb-8">
+            <Card className="bg-gradient-to-r from-[#112D4E] to-[#3F72AF] text-white border-0">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[#DBE2EF] text-xs sm:text-sm">Total Events</p>
+                    <p className="text-2xl sm:text-3xl font-bold">{loading ? '...' : stats.totalEvents}</p>
+                  </div>
+                  <CalendarDays className="h-6 w-6 sm:h-8 sm:w-8 opacity-75" />
                 </div>
-                <div className="ml-4">
-                  <p className="text-sm font-medium text-[#3F72AF]">User ID</p>
-                  <p className="text-lg font-semibold text-[#112D4E] font-mono">{ownerId}</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[#DBE2EF]">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[#3F72AF] text-xs sm:text-sm">Total Registrations</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-[#112D4E]">{loading ? '...' : stats.totalAttendees}</p>
+                  </div>
+                  <Users className="h-6 w-6 sm:h-8 sm:w-8 text-[#3F72AF]" />
                 </div>
-              </div>
-            </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[#DBE2EF]">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[#3F72AF] text-xs sm:text-sm">Visited</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-green-600">{loading ? '...' : stats.visitedCount}</p>
+                  </div>
+                  <Eye className="h-6 w-6 sm:h-8 sm:w-8 text-green-500" />
+                </div>
+              </CardContent>
+            </Card>
+
+            <Card className="border-[#DBE2EF]">
+              <CardContent className="p-4 sm:p-6">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <p className="text-[#3F72AF] text-xs sm:text-sm">Today's Registrations</p>
+                    <p className="text-2xl sm:text-3xl font-bold text-blue-600">{loading ? '...' : stats.recentRegistrations}</p>
+                  </div>
+                  <TrendingUp className="h-6 w-6 sm:h-8 sm:w-8 text-blue-500" />
+                </div>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Quick Stats */}
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <div className="bg-gradient-to-r from-[#112D4E] to-[#3F72AF] p-6 rounded-lg text-white">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[#DBE2EF]">Total Events</p>
-                  <p className="text-3xl font-bold">0</p>
-                </div>
-                <div className="p-3 bg-white bg-opacity-20 rounded-full">
-                  <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
-                  </svg>
-                </div>
-              </div>
-            </div>
+          {/* Charts Section */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 sm:gap-6 mb-6 sm:mb-8">
+            {/* Event Attendees Bar Chart */}
+            <Card className="border-[#DBE2EF]">
+              <CardHeader>
+                <CardTitle className="text-[#112D4E] text-lg sm:text-xl">Event Attendance Overview</CardTitle>
+                <CardDescription className="text-sm">Total registrations vs visited by event</CardDescription>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                {eventData.length > 0 ? (
+                  <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full">
+                    <BarChart data={eventData} margin={{ top: 20, right: 20, bottom: 60, left: 20 }}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis 
+                        dataKey="eventName" 
+                        fontSize={10}
+                        angle={-35}
+                        textAnchor="end"
+                        height={60}
+                        interval={0}
+                        tick={{ fontSize: 10 }}
+                      />
+                      <YAxis fontSize={10} tick={{ fontSize: 10 }} />
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                      <Bar dataKey="attendeeCount" fill="var(--color-attendeeCount)" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="visitedCount" fill="var(--color-visitedCount)" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ChartContainer>
+                ) : (
+                  <div className="h-[250px] sm:h-[300px] flex items-center justify-center text-gray-500 text-sm">
+                    {loading ? 'Loading chart data...' : 'No event data available'}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-            <div className="bg-white p-6 rounded-lg border border-[#DBE2EF] shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[#3F72AF]">Active Events</p>
-                  <p className="text-3xl font-bold text-[#112D4E]">0</p>
-                </div>
-                <div className="p-3 bg-[#DBE2EF] rounded-full">
-                  <svg className="w-8 h-8 text-[#3F72AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg border border-[#DBE2EF] shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[#3F72AF]">Total Attendees</p>
-                  <p className="text-3xl font-bold text-[#112D4E]">0</p>
-                </div>
-                <div className="p-3 bg-[#DBE2EF] rounded-full">
-                  <svg className="w-8 h-8 text-[#3F72AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.5 2.5 0 11-5 0 2.5 2.5 0 015 0z"></path>
-                  </svg>
-                </div>
-              </div>
-            </div>
-
-            <div className="bg-white p-6 rounded-lg border border-[#DBE2EF] shadow-sm">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-[#3F72AF]">Check-ins Today</p>
-                  <p className="text-3xl font-bold text-[#112D4E]">0</p>
-                </div>
-                <div className="p-3 bg-[#DBE2EF] rounded-full">
-                  <svg className="w-8 h-8 text-[#3F72AF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"></path>
-                  </svg>
-                </div>
-              </div>
-            </div>
+            {/* Status Distribution Pie Chart */}
+            <Card className="border-[#DBE2EF]">
+              <CardHeader>
+                <CardTitle className="text-[#112D4E] text-lg sm:text-xl">Registration Status</CardTitle>
+                <CardDescription className="text-sm">Distribution of visitor statuses</CardDescription>
+              </CardHeader>
+              <CardContent className="p-4 sm:p-6">
+                {statusData.length > 0 && statusData.some(d => d.value > 0) ? (
+                  <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full">
+                    <PieChart margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                      <Pie
+                        data={statusData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={({ name, percent }) => {
+                          // Hide labels on very small screens to prevent overlap
+                          if (typeof window !== 'undefined' && window.innerWidth < 400) {
+                            return '';
+                          }
+                          return `${name} ${(percent * 100).toFixed(0)}%`;
+                        }}
+                        outerRadius="70%"
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {statusData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.color} />
+                        ))}
+                      </Pie>
+                      <ChartTooltip content={<ChartTooltipContent />} />
+                    </PieChart>
+                  </ChartContainer>
+                ) : (
+                  <div className="h-[250px] sm:h-[300px] flex items-center justify-center text-gray-500 text-sm">
+                    {loading ? 'Loading chart data...' : 'No status data available'}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Welcome Message */}
-          <div className="bg-white rounded-lg shadow-sm border border-[#DBE2EF] p-6">
-            <h2 className="text-xl font-semibold text-[#112D4E] mb-4">Getting Started</h2>
-            <div className="prose max-w-none">
-              <p className="text-[#3F72AF] mb-4">
-                Welcome to your Visitrack admin dashboard! Here you can manage your events, 
-                track attendees, and monitor real-time check-ins. 
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-[#3F72AF] rounded-full flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">1</span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-[#112D4E]">Create Your First Event</h3>
-                    <p className="text-sm text-[#3F72AF]">Set up your event details and start managing registrations.</p>
-                  </div>
+          {/* Registration Trend Chart */}
+          <Card className="border-[#DBE2EF] mb-8">
+            <CardHeader>
+              <CardTitle className="text-[#112D4E] text-lg sm:text-xl">Registration Trend (Last 7 Days)</CardTitle>
+              <CardDescription className="text-sm">Daily registration and visit trends</CardDescription>
+            </CardHeader>
+            <CardContent className="p-4 sm:p-6">
+              {registrationTrend.length > 0 ? (
+                <ChartContainer config={chartConfig} className="h-[250px] sm:h-[300px] w-full">
+                  <AreaChart data={registrationTrend} margin={{ top: 20, right: 20, bottom: 20, left: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="date" 
+                      fontSize={10} 
+                      tick={{ fontSize: 10 }}
+                      interval={0}
+                    />
+                    <YAxis 
+                      fontSize={10} 
+                      tick={{ fontSize: 10 }}
+                    />
+                    <ChartTooltip content={<ChartTooltipContent />} />
+                    <Area 
+                      type="monotone" 
+                      dataKey="registrations" 
+                      stackId="1"
+                      stroke="var(--color-registrations)" 
+                      fill="var(--color-registrations)"
+                      fillOpacity={0.6}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="visited" 
+                      stackId="2"
+                      stroke="var(--color-visited)" 
+                      fill="var(--color-visited)"
+                      fillOpacity={0.8}
+                    />
+                  </AreaChart>
+                </ChartContainer>
+              ) : (
+                <div className="h-[250px] sm:h-[300px] flex items-center justify-center text-gray-500 text-sm">
+                  {loading ? 'Loading trend data...' : 'No trend data available'}
                 </div>
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-[#3F72AF] rounded-full flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">2</span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-[#112D4E]">Invite Attendees</h3>
-                    <p className="text-sm text-[#3F72AF]">Send invitations and manage your attendee list.</p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-[#3F72AF] rounded-full flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">3</span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-[#112D4E]">Monitor Check-ins</h3>
-                    <p className="text-sm text-[#3F72AF]">Track real-time attendance and manage on-site check-ins.</p>
-                  </div>
-                </div>
-                <div className="flex items-start space-x-3">
-                  <div className="flex-shrink-0">
-                    <div className="w-8 h-8 bg-[#3F72AF] rounded-full flex items-center justify-center">
-                      <span className="text-white font-bold text-sm">4</span>
-                    </div>
-                  </div>
-                  <div>
-                    <h3 className="font-medium text-gray-900">Generate Reports</h3>
-                    <p className="text-sm text-gray-500">Access detailed analytics and export attendance data.</p>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+              )}
+            </CardContent>
+          </Card>
         </div>
       </AdminLayout>
     </>
