@@ -73,6 +73,68 @@ const createTransporter = () => {
   });
 };
 
+// Template variable replacement function
+function replaceTemplateVariables(
+  text: string, 
+  visitor: any, 
+  event: any, 
+  sender: any
+): string {
+  if (!text) return text;
+  
+  const variables = {
+    // Visitor variables
+    '{visitorName}': visitor?.fullName || '[Visitor Name]',
+    '{visitorEmail}': visitor?.email || '[Visitor Email]',
+    '{visitorPhone}': visitor?.phoneNumber || '[Visitor Phone]',
+    '{visitorCompany}': visitor?.company || '[Visitor Company]',
+    '{visitorStatus}': visitor?.status || '[Visitor Status]',
+    
+    // Event variables
+    '{eventName}': event?.eventName || '[Event Name]',
+    '{eventLocation}': event?.eventLocation || '[Event Location]',
+    '{eventDate}': event?.eventStartDate ? new Date(event.eventStartDate).toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }) : '[Event Date]',
+    '{eventStartDate}': event?.eventStartDate ? new Date(event.eventStartDate).toLocaleDateString() : '[Event Start Date]',
+    '{eventEndDate}': event?.eventEndDate ? new Date(event.eventEndDate).toLocaleDateString() : '[Event End Date]',
+    '{eventTime}': event?.eventStartDate ? new Date(event.eventStartDate).toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }) : '[Event Time]',
+    
+    // Sender variables
+    '{senderName}': sender?.username || '[Sender Name]',
+    '{senderEmail}': sender?.email || '[Sender Email]',
+    
+    // System variables
+    '{currentDate}': new Date().toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    }),
+    '{currentTime}': new Date().toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    }),
+    '{year}': new Date().getFullYear().toString()
+  };
+  
+  let replacedText = text;
+  
+  // Replace all variables in the text
+  Object.entries(variables).forEach(([placeholder, value]) => {
+    const regex = new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'gi');
+    replacedText = replacedText.replace(regex, value || '');
+  });
+  
+  return replacedText;
+}
+
 // Real email sending function using nodemailer
 async function sendEmail(to: string, subject: string, message: string, fromEmail: string, senderName?: string, eventName?: string, eventLocation?: string, eventDate?: string) {
   try {
@@ -204,10 +266,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
 
     for (const visitor of visitors) {
       try {
+        // Replace template variables in subject and message for each visitor
+        const personalizedSubject = replaceTemplateVariables(enhancedSubject, visitor, event, userInfo);
+        const personalizedMessage = replaceTemplateVariables(message, visitor, event, userInfo);
+        
         const emailResult = await sendEmail(
           visitor.email,
-          enhancedSubject,
-          message,
+          personalizedSubject,
+          personalizedMessage,
           userInfo.email || 'noreply@visitrack.com',
           userInfo.username,
           event.eventName,

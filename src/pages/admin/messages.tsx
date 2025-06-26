@@ -26,7 +26,11 @@ import {
   Search,
   Filter,
   Check,
-  Clock
+  Clock,
+  Info,
+  Copy,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 interface Event {
@@ -91,6 +95,79 @@ const Messages = () => {
   // Search and Filter States
   const [visitorSearch, setVisitorSearch] = useState('');
   const [templateSearch, setTemplateSearch] = useState('');
+
+  // Template Variables Helper State
+  const [showVariablesHelper, setShowVariablesHelper] = useState(false);
+  const [activeTextarea, setActiveTextarea] = useState<'subject' | 'message' | 'templateSubject' | 'templateMessage' | null>(null);
+  
+  // Available template variables
+  const templateVariables = [
+    {
+      category: 'Visitor Information',
+      variables: [
+        { name: '{visitorName}', description: 'Full name of the visitor', example: 'John Doe' },
+        { name: '{visitorEmail}', description: 'Email address of the visitor', example: 'john@example.com' },
+        { name: '{visitorPhone}', description: 'Phone number of the visitor', example: '+1234567890' },
+        { name: '{visitorCompany}', description: 'Company name of the visitor', example: 'Tech Corp' },
+        { name: '{visitorStatus}', description: 'Registration status', example: 'Registered / Visited' }
+      ]
+    },
+    {
+      category: 'Event Information',
+      variables: [
+        { name: '{eventName}', description: 'Name of the event', example: 'Tech Conference 2025' },
+        { name: '{eventLocation}', description: 'Event location', example: 'Convention Center' },
+        { name: '{eventDate}', description: 'Formatted event date', example: 'Monday, January 15, 2025' },
+        { name: '{eventStartDate}', description: 'Event start date', example: '01/15/2025' },
+        { name: '{eventEndDate}', description: 'Event end date', example: '01/17/2025' },
+        { name: '{eventTime}', description: 'Event start time', example: '09:00 AM' }
+      ]
+    },
+    {
+      category: 'Sender Information',
+      variables: [
+        { name: '{senderName}', description: 'Name of the message sender', example: 'Event Organizer' },
+        { name: '{senderEmail}', description: 'Email of the message sender', example: 'organizer@event.com' }
+      ]
+    },
+    {
+      category: 'System Information',
+      variables: [
+        { name: '{currentDate}', description: 'Current date', example: 'Monday, January 15, 2025' },
+        { name: '{currentTime}', description: 'Current time', example: '02:30 PM' },
+        { name: '{year}', description: 'Current year', example: '2025' }
+      ]
+    }
+  ];
+
+  // Function to insert variable into active textarea
+  const insertVariable = (variable: string) => {
+    if (!activeTextarea) return;
+    
+    switch (activeTextarea) {
+      case 'subject':
+        setEmailSubject(prev => prev + variable);
+        break;
+      case 'message':
+        setEmailMessage(prev => prev + variable);
+        break;
+      case 'templateSubject':
+        setTemplateForm(prev => ({ ...prev, subject: prev.subject + variable }));
+        break;
+      case 'templateMessage':
+        setTemplateForm(prev => ({ ...prev, message: prev.message + variable }));
+        break;
+    }
+  };
+
+  // Copy variable to clipboard
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Copied!",
+      description: `${text} copied to clipboard`,
+    });
+  };
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -561,67 +638,154 @@ const Messages = () => {
 
               {/* Message Composition */}
               {selectedEvent && (
-                <Card>
-                  <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                      <FileText className="w-5 h-5 text-blue-600" />
-                      Compose Message
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Email Subject
-                      </label>
-                      <Input
-                        placeholder="Enter email subject..."
-                        value={emailSubject}
-                        onChange={(e) => setEmailSubject(e.target.value)}
-                        className="w-full"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Message
-                      </label>
-                      <Textarea
-                        placeholder="Enter your message..."
-                        value={emailMessage}
-                        onChange={(e) => setEmailMessage(e.target.value)}
-                        rows={8}
-                        className="w-full resize-none"
-                      />
-                    </div>
-                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-                      <div className="text-sm text-gray-600">
-                        {selectedVisitors.length > 0 && (
-                          <span>Ready to send to {selectedVisitors.length} recipient{selectedVisitors.length > 1 ? 's' : ''}</span>
-                        )}
+                <>
+                  <Card>
+                    <CardHeader>
+                      <CardTitle className="flex items-center gap-2">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                        Compose Message
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Email Subject
+                        </label>
+                        <Input
+                          placeholder="Enter email subject... (e.g., Hello {visitorName}!)"
+                          value={emailSubject}
+                          onChange={(e) => setEmailSubject(e.target.value)}
+                          onFocus={() => setActiveTextarea('subject')}
+                          className="w-full"
+                        />
                       </div>
-                      <Button
-                        onClick={handleSendMessage}
-                        disabled={sendingEmail || selectedVisitors.length === 0 || !emailSubject.trim() || !emailMessage.trim()}
-                        className="flex items-center gap-2 w-full sm:w-auto"
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Message
+                        </label>
+                        <Textarea
+                          placeholder="Enter your message... (e.g., Dear {visitorName}, thank you for registering for {eventName}...)"
+                          value={emailMessage}
+                          onChange={(e) => setEmailMessage(e.target.value)}
+                          onFocus={() => setActiveTextarea('message')}
+                          rows={8}
+                          className="w-full resize-none"
+                        />
+                      </div>
+                      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                        <div className="text-sm text-gray-600">
+                          {selectedVisitors.length > 0 && (
+                            <span>Ready to send to {selectedVisitors.length} recipient{selectedVisitors.length > 1 ? 's' : ''}</span>
+                          )}
+                        </div>
+                        <Button
+                          onClick={handleSendMessage}
+                          disabled={sendingEmail || selectedVisitors.length === 0 || !emailSubject.trim() || !emailMessage.trim()}
+                          className="flex items-center gap-2 w-full sm:w-auto"
+                        >
+                          {sendingEmail ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                              Sending...
+                            </>
+                          ) : (
+                            <>
+                              <Send className="w-4 h-4" />
+                              <span className="hidden sm:inline">Send Message</span>
+                              <span className="sm:hidden">Send</span>
+                              {selectedVisitors.length > 0 && (
+                                <span className="hidden sm:inline">({selectedVisitors.length})</span>
+                              )}
+                            </>
+                          )}
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Template Variables Helper */}
+                  <Card>
+                    <CardHeader>
+                      <CardTitle 
+                        className="flex items-center justify-between cursor-pointer"
+                        onClick={() => setShowVariablesHelper(!showVariablesHelper)}
                       >
-                        {sendingEmail ? (
-                          <>
-                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                            Sending...
-                          </>
+                        <div className="flex items-center gap-2">
+                          <Info className="w-5 h-5 text-blue-600" />
+                          Template Variables
+                        </div>
+                        {showVariablesHelper ? (
+                          <ChevronUp className="w-4 h-4" />
                         ) : (
-                          <>
-                            <Send className="w-4 h-4" />
-                            <span className="hidden sm:inline">Send Message</span>
-                            <span className="sm:hidden">Send</span>
-                            {selectedVisitors.length > 0 && (
-                              <span className="hidden sm:inline">({selectedVisitors.length})</span>
-                            )}
-                          </>
+                          <ChevronDown className="w-4 h-4" />
                         )}
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+                      </CardTitle>
+                    </CardHeader>
+                    {showVariablesHelper && (
+                      <CardContent>
+                        <div className="text-sm text-gray-600 mb-4">
+                          Click on any variable below to insert it into your subject or message. Variables will be automatically replaced with actual data for each recipient.
+                        </div>
+                        <div className="space-y-4">
+                          {templateVariables.map((category) => (
+                            <div key={category.category}>
+                              <h4 className="font-medium text-gray-900 mb-2">{category.category}</h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                {category.variables.map((variable) => (
+                                  <div 
+                                    key={variable.name}
+                                    className="flex items-center justify-between p-2 border rounded-lg hover:bg-gray-50 cursor-pointer"
+                                    onClick={() => insertVariable(variable.name)}
+                                  >
+                                    <div className="flex-1">
+                                      <div className="flex items-center gap-2">
+                                        <code className="text-sm font-mono bg-blue-100 text-blue-800 px-2 py-1 rounded">
+                                          {variable.name}
+                                        </code>
+                                        <Button
+                                          size="sm"
+                                          variant="ghost"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            copyToClipboard(variable.name);
+                                          }}
+                                          className="h-6 w-6 p-0"
+                                        >
+                                          <Copy className="w-3 h-3" />
+                                        </Button>
+                                      </div>
+                                      <div className="text-xs text-gray-500 mt-1">
+                                        {variable.description}
+                                      </div>
+                                      <div className="text-xs text-gray-400 mt-1">
+                                        Example: {variable.example}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {activeTextarea && (
+                          <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+                            <div className="text-sm text-blue-800">
+                              <strong>Active field:</strong> {
+                                activeTextarea === 'subject' ? 'Email Subject' :
+                                activeTextarea === 'message' ? 'Message' :
+                                activeTextarea === 'templateSubject' ? 'Template Subject' :
+                                'Template Message'
+                              }
+                            </div>
+                            <div className="text-xs text-blue-600 mt-1">
+                              Click any variable above to insert it into this field.
+                            </div>
+                          </div>
+                        )}
+                      </CardContent>
+                    )}
+                  </Card>
+                </>
               )}
             </div>
           )}
@@ -682,9 +846,10 @@ const Messages = () => {
                         Subject
                       </label>
                       <Input
-                        placeholder="Enter email subject..."
+                        placeholder="Enter email subject... (e.g., Welcome {visitorName} to {eventName})"
                         value={templateForm.subject}
                         onChange={(e) => setTemplateForm(prev => ({ ...prev, subject: e.target.value }))}
+                        onFocus={() => setActiveTextarea('templateSubject')}
                         className="w-full"
                       />
                     </div>
@@ -693,13 +858,101 @@ const Messages = () => {
                         Message
                       </label>
                       <Textarea
-                        placeholder="Enter message template..."
+                        placeholder="Enter message template... (e.g., Dear {visitorName}, we're excited to see you at {eventName} on {eventDate}...)"
                         value={templateForm.message}
                         onChange={(e) => setTemplateForm(prev => ({ ...prev, message: e.target.value }))}
+                        onFocus={() => setActiveTextarea('templateMessage')}
                         rows={8}
                         className="w-full resize-none"
                       />
                     </div>
+                    
+                    {/* Sample Templates */}
+                    <div className="border-t pt-4">
+                      <h4 className="text-sm font-medium text-gray-700 mb-3">Quick Start Templates</h4>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setTemplateForm(prev => ({
+                              ...prev,
+                              templateName: 'Welcome Message',
+                              subject: 'Welcome to {eventName}, {visitorName}!',
+                              message: 'Dear {visitorName},\n\nThank you for registering for {eventName}!\n\nEvent Details:\n📅 Date: {eventDate}\n📍 Location: {eventLocation}\n🕒 Time: {eventTime}\n\nWe look forward to seeing you there!\n\nBest regards,\n{senderName}'
+                            }));
+                          }}
+                          className="text-left justify-start h-auto p-2"
+                        >
+                          <div>
+                            <div className="font-medium text-xs">Welcome Message</div>
+                            <div className="text-xs text-gray-500">Basic welcome template</div>
+                          </div>
+                        </Button>
+                        
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setTemplateForm(prev => ({
+                              ...prev,
+                              templateName: 'Event Reminder',
+                              subject: 'Reminder: {eventName} is tomorrow!',
+                              message: 'Hi {visitorName},\n\nJust a friendly reminder that {eventName} is happening tomorrow!\n\n📅 Date: {eventDate}\n📍 Location: {eventLocation}\n🕒 Time: {eventTime}\n\nDon\'t forget to bring your registration confirmation.\n\nSee you soon!\n{senderName}'
+                            }));
+                          }}
+                          className="text-left justify-start h-auto p-2"
+                        >
+                          <div>
+                            <div className="font-medium text-xs">Event Reminder</div>
+                            <div className="text-xs text-gray-500">Pre-event reminder</div>
+                          </div>
+                        </Button>
+                        
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setTemplateForm(prev => ({
+                              ...prev,
+                              templateName: 'Thank You',
+                              subject: 'Thank you for attending {eventName}!',
+                              message: 'Dear {visitorName},\n\nThank you for attending {eventName} on {eventDate}!\n\nWe hope you found the event valuable and informative.\n\nIf you have any feedback or questions, please don\'t hesitate to reach out.\n\nBest regards,\n{senderName}\n{senderEmail}'
+                            }));
+                          }}
+                          className="text-left justify-start h-auto p-2"
+                        >
+                          <div>
+                            <div className="font-medium text-xs">Thank You</div>
+                            <div className="text-xs text-gray-500">Post-event message</div>
+                          </div>
+                        </Button>
+                        
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setTemplateForm(prev => ({
+                              ...prev,
+                              templateName: 'Event Update',
+                              subject: 'Important Update: {eventName}',
+                              message: 'Hello {visitorName},\n\nWe have an important update regarding {eventName}.\n\n[Your update message here]\n\nEvent Details:\n📅 Date: {eventDate}\n📍 Location: {eventLocation}\n\nIf you have any questions, please contact us.\n\nBest regards,\n{senderName}'
+                            }));
+                          }}
+                          className="text-left justify-start h-auto p-2"
+                        >
+                          <div>
+                            <div className="font-medium text-xs">Event Update</div>
+                            <div className="text-xs text-gray-500">General update template</div>
+                          </div>
+                        </Button>
+                      </div>
+                    </div>
+
                     <div className="flex flex-col sm:flex-row justify-end gap-2">
                       <Button
                         variant="outline"
@@ -738,12 +991,23 @@ const Messages = () => {
                     </div>
                   ) : (
                     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                      {filteredTemplates.map((template) => (
+                      {filteredTemplates.map((template) => {
+                        const hasVariables = template.subject.includes('{') || template.message.includes('{');
+                        const variableCount = (template.subject + ' ' + template.message).match(/\{[^}]+\}/g)?.length || 0;
+                        
+                        return (
                         <Card key={template._id} className="border border-gray-200 hover:shadow-md transition-shadow">
                           <CardContent className="p-4">
                             <div className="space-y-3">
                               <div>
-                                <h3 className="font-semibold text-gray-900 truncate">{template.templateName}</h3>
+                                <div className="flex items-center justify-between">
+                                  <h3 className="font-semibold text-gray-900 truncate">{template.templateName}</h3>
+                                  {hasVariables && (
+                                    <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-800">
+                                      {variableCount} vars
+                                    </Badge>
+                                  )}
+                                </div>
                                 <p className="text-sm text-gray-600 mt-1 truncate">{template.subject}</p>
                               </div>
                               <div className="text-xs text-gray-500">
@@ -786,7 +1050,8 @@ const Messages = () => {
                             </div>
                           </CardContent>
                         </Card>
-                      ))}
+                        );
+                      })}
                     </div>
                   )}
                 </CardContent>
