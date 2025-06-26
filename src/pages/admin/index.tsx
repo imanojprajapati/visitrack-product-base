@@ -75,6 +75,19 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true);
   const [events, setEvents] = useState<Event[]>([]);
   const [selectedEventId, setSelectedEventId] = useState<string>('all');
+  const [trendPeriod, setTrendPeriod] = useState<number>(7);
+
+  const getPeriodLabel = (period: number, lowercase = false) => {
+    const labels = {
+      7: lowercase ? '7 days' : '7 Days',
+      15: lowercase ? '15 days' : '15 Days',
+      30: lowercase ? '30 days' : '30 Days',
+      90: lowercase ? '3 months' : '3 Months',
+      180: lowercase ? '6 months' : '6 Months',
+      365: lowercase ? '1 year' : '1 Year'
+    };
+    return labels[period as keyof typeof labels] || `${period} ${lowercase ? 'days' : 'Days'}`;
+  };
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -86,7 +99,7 @@ export default function AdminDashboard() {
     if (isAuthenticated && user?.id) {
       fetchDashboardData();
     }
-  }, [user?.id, isAuthenticated, selectedEventId]);
+  }, [user?.id, isAuthenticated, selectedEventId, trendPeriod]);
 
   const fetchDashboardData = async () => {
     const authToken = localStorage.getItem('authToken');
@@ -144,7 +157,7 @@ export default function AdminDashboard() {
         const selectedEvent = eventsData.find((e: any) => e._id === selectedEventId);
         if (selectedEvent) {
           const dailyData = [];
-          for (let i = 6; i >= 0; i--) {
+          for (let i = trendPeriod - 1; i >= 0; i--) {
             const date = new Date();
             date.setDate(date.getDate() - i);
             const dateStr = date.toISOString().split('T')[0];
@@ -152,7 +165,19 @@ export default function AdminDashboard() {
             const dayVisited = dayVisitors.filter((v: any) => v.status.toLowerCase() === 'visited');
             
             dailyData.push({
-              eventName: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              eventName: date.toLocaleDateString('en-US', { 
+                ...(trendPeriod >= 90 ? {
+                  month: 'short',
+                  year: '2-digit'
+                } : trendPeriod > 15 ? {
+                  month: 'short', 
+                  day: 'numeric',
+                  year: '2-digit'
+                } : {
+                  month: 'short', 
+                  day: 'numeric'
+                })
+              }),
               attendeeCount: dayVisitors.length,
               visitedCount: dayVisited.length
             });
@@ -168,9 +193,9 @@ export default function AdminDashboard() {
         { name: 'Visited', value: visitedCount, color: '#112D4E' }
       ]);
 
-      // Prepare registration trend data (last 7 days)
+      // Prepare registration trend data (based on selected period)
       const trendData = [];
-      for (let i = 6; i >= 0; i--) {
+      for (let i = trendPeriod - 1; i >= 0; i--) {
         const date = new Date();
         date.setDate(date.getDate() - i);
         const dateStr = date.toISOString().split('T')[0];
@@ -180,7 +205,19 @@ export default function AdminDashboard() {
         ).length;
         
         trendData.push({
-          date: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          date: date.toLocaleDateString('en-US', { 
+            ...(trendPeriod >= 90 ? {
+              month: 'short',
+              year: '2-digit'
+            } : trendPeriod > 15 ? {
+              month: 'short', 
+              day: 'numeric',
+              year: '2-digit'
+            } : {
+              month: 'short', 
+              day: 'numeric'
+            })
+          }),
           registrations: dayRegistrations,
           visited: dayVisited
         });
@@ -324,7 +361,7 @@ export default function AdminDashboard() {
                 <CardDescription className="text-sm">
                   {selectedEventId === 'all' 
                     ? 'Total registrations vs visited by event' 
-                    : 'Daily registrations vs visited for selected event'
+                    : `Daily registrations vs visited for selected event (Last ${getPeriodLabel(trendPeriod, true)})`
                   }
                 </CardDescription>
               </CardHeader>
@@ -336,10 +373,18 @@ export default function AdminDashboard() {
                       <XAxis 
                         dataKey="eventName" 
                         fontSize={10}
-                        angle={-35}
+                        angle={selectedEventId !== 'all' && trendPeriod > 15 ? -45 : -35}
                         textAnchor="end"
                         height={60}
-                        interval={0}
+                        interval={
+                          selectedEventId === 'all' ? 0 :
+                          trendPeriod <= 7 ? 0 : 
+                          trendPeriod <= 15 ? 1 : 
+                          trendPeriod <= 30 ? 2 :
+                          trendPeriod <= 90 ? 7 :
+                          trendPeriod <= 180 ? 15 :
+                          30 // 1 year
+                        }
                         tick={{ fontSize: 10 }}
                       />
                       <YAxis fontSize={10} tick={{ fontSize: 10 }} />
@@ -401,20 +446,42 @@ export default function AdminDashboard() {
           {/* Registration Trend Chart */}
           <Card className="border-[#DBE2EF] mb-8">
             <CardHeader>
-              <CardTitle className="text-[#112D4E] text-lg sm:text-xl">
-                Registration Trend (Last 7 Days)
-                {selectedEventId !== 'all' && (
-                  <span className="text-sm font-normal text-[#3F72AF] ml-2">
-                    - {events.find(e => e._id === selectedEventId)?.eventName}
-                  </span>
-                )}
-              </CardTitle>
-              <CardDescription className="text-sm">
-                {selectedEventId === 'all' 
-                  ? 'Daily registration and visit trends across all events'
-                  : 'Daily registration and visit trends for selected event'
-                }
-              </CardDescription>
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                <div>
+                  <CardTitle className="text-[#112D4E] text-lg sm:text-xl">
+                    Registration Trend (Last {getPeriodLabel(trendPeriod)})
+                    {selectedEventId !== 'all' && (
+                      <span className="text-sm font-normal text-[#3F72AF] ml-2">
+                        - {events.find(e => e._id === selectedEventId)?.eventName}
+                      </span>
+                    )}
+                  </CardTitle>
+                  <CardDescription className="text-sm">
+                    {selectedEventId === 'all' 
+                      ? 'Daily registration and visit trends across all events'
+                      : 'Daily registration and visit trends for selected event'
+                    }
+                  </CardDescription>
+                </div>
+                
+                {/* Period Filter */}
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-[#112D4E] whitespace-nowrap">Period:</span>
+                  <Select value={trendPeriod.toString()} onValueChange={(value) => setTrendPeriod(parseInt(value))}>
+                    <SelectTrigger className="w-32">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="7">7 Days</SelectItem>
+                      <SelectItem value="15">15 Days</SelectItem>
+                      <SelectItem value="30">30 Days</SelectItem>
+                      <SelectItem value="90">3 Months</SelectItem>
+                      <SelectItem value="180">6 Months</SelectItem>
+                      <SelectItem value="365">1 Year</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
             </CardHeader>
             <CardContent className="p-4 sm:p-6">
               {registrationTrend.length > 0 ? (
@@ -425,7 +492,17 @@ export default function AdminDashboard() {
                       dataKey="date" 
                       fontSize={10} 
                       tick={{ fontSize: 10 }}
-                      interval={0}
+                      interval={
+                        trendPeriod <= 7 ? 0 : 
+                        trendPeriod <= 15 ? 1 : 
+                        trendPeriod <= 30 ? 2 :
+                        trendPeriod <= 90 ? 7 :
+                        trendPeriod <= 180 ? 15 :
+                        30 // 1 year
+                      }
+                      angle={trendPeriod > 15 ? -45 : 0}
+                      textAnchor={trendPeriod > 15 ? "end" : "middle"}
+                      height={trendPeriod > 15 ? 60 : 30}
                     />
                     <YAxis 
                       fontSize={10} 
