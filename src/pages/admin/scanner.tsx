@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
-import { Alert, AlertDescription } from '@/components/ui/alert';
 
 import { 
   QrCode,
@@ -16,14 +15,8 @@ import {
   XCircle,
   User,
   Calendar,
-  MapPin,
   Building,
-  Phone,
-  Mail,
-  Clock,
-  Scan,
   RotateCcw,
-  AlertTriangle,
   Zap
 } from 'lucide-react';
 
@@ -54,15 +47,13 @@ const QuickScanner = () => {
   
   const [isScanning, setIsScanning] = useState(false);
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
-  const [currentScan, setCurrentScan] = useState<string>('');
   const [processing, setProcessing] = useState(false);
-  const [cameraError, setCameraError] = useState<string>('');
   const [scanCount, setScanCount] = useState(0);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const scanIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -75,165 +66,82 @@ const QuickScanner = () => {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
-      stopScanning();
+      stopCamera();
     };
   }, []);
 
-  const startScanning = async () => {
+  const startCamera = async () => {
     try {
-      setCameraError('');
-      console.log('Starting camera...');
-      
-      // Check if getUserMedia is available
-      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        throw new Error('Camera access not supported in this browser');
-      }
-      
-      // Try different camera constraints
-      const constraints = [
-        {
-          video: {
-            facingMode: 'environment',
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-          }
-        },
-        {
-          video: {
-            width: { ideal: 640 },
-            height: { ideal: 480 }
-          }
-        },
-        {
-          video: true
+      // Stop any existing camera
+      stopCamera();
+
+      // Get user media
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: 'environment',
+          width: { ideal: 640 },
+          height: { ideal: 480 }
         }
-      ];
+      });
 
-      let stream: MediaStream | null = null;
-      
-      for (const constraint of constraints) {
-        try {
-          console.log('Trying constraint:', constraint);
-          stream = await navigator.mediaDevices.getUserMedia(constraint);
-          console.log('Camera stream obtained:', stream);
-          break;
-        } catch (constraintError) {
-          console.log('Constraint failed:', constraintError);
-          continue;
-        }
-      }
-
-      if (!stream) {
-        throw new Error('Unable to access camera with any constraints');
-      }
-
+      // Set video source
       if (videoRef.current) {
-        const video = videoRef.current;
-        
-        console.log('Setting video source...');
-        video.srcObject = stream;
+        videoRef.current.srcObject = stream;
         streamRef.current = stream;
-        setIsScanning(true);
         
-        const handleCanPlay = async () => {
-          try {
-            console.log('Video can play, attempting to start...');
-            await video.play();
-            console.log('Video started playing successfully');
-            startScanLoop();
-          } catch (playError) {
-            console.error('Video play error:', playError);
-            setCameraError('Unable to start video playback. Please try again.');
+        // Wait for video to be ready and start
+        videoRef.current.onloadedmetadata = () => {
+          if (videoRef.current) {
+            videoRef.current.play().then(() => {
+              setIsScanning(true);
+              startScanning();
+            }).catch(console.error);
           }
         };
-
-        const handleLoadedMetadata = () => {
-          console.log('Video metadata loaded, dimensions:', video.videoWidth, 'x', video.videoHeight);
-          if (video.videoWidth > 0 && video.videoHeight > 0) {
-            handleCanPlay();
-          }
-        };
-
-        const handleError = (error: any) => {
-          console.error('Video error:', error);
-          setCameraError('Video playback error occurred.');
-        };
-
-        // Add event listeners
-        video.onloadedmetadata = handleLoadedMetadata;
-        video.oncanplay = handleCanPlay;
-        video.onerror = handleError;
-        
-        // Force load
-        video.load();
-        
-        // Fallback attempts
-        setTimeout(() => {
-          if (video.readyState >= 2) {
-            console.log('Fallback: Video ready, attempting play...');
-            handleCanPlay();
-          }
-        }, 500);
-        
-        setTimeout(() => {
-          if (video.readyState >= 1 && video.videoWidth > 0) {
-            console.log('Second fallback: Video has metadata, attempting play...');
-            handleCanPlay();
-          }
-        }, 1000);
       }
     } catch (error: any) {
-      console.error('Camera access error:', error);
-      setCameraError(`Unable to access camera: ${error.message}`);
+      console.error('Camera error:', error);
       toast({
         title: "Camera Error",
-        description: `Unable to access camera: ${error.message}`,
+        description: "Could not access camera. Please check permissions.",
         variant: "destructive"
       });
     }
   };
 
-  const stopScanning = () => {
-    console.log('Stopping scanner...');
-    
+  const stopCamera = () => {
+    // Stop scanning interval
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
+      intervalRef.current = null;
+    }
+
+    // Stop video stream
     if (streamRef.current) {
-      streamRef.current.getTracks().forEach(track => {
-        console.log('Stopping track:', track.kind);
-        track.stop();
-      });
+      streamRef.current.getTracks().forEach(track => track.stop());
       streamRef.current = null;
     }
-    
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
-      scanIntervalRef.current = null;
-    }
-    
-    // Clear video source
+
+    // Clear video
     if (videoRef.current) {
       videoRef.current.srcObject = null;
-      videoRef.current.onloadedmetadata = null;
-      videoRef.current.oncanplay = null;
     }
-    
+
     setIsScanning(false);
-    setCameraError('');
   };
 
-  const startScanLoop = () => {
-    if (scanIntervalRef.current) {
-      clearInterval(scanIntervalRef.current);
+  const startScanning = () => {
+    if (intervalRef.current) {
+      clearInterval(intervalRef.current);
     }
 
-    scanIntervalRef.current = setInterval(() => {
-      if (videoRef.current && canvasRef.current && isScanning && !processing) {
-        scanQRCode();
-      }
-    }, 500); // Scan every 500ms
+    intervalRef.current = setInterval(() => {
+      scanForQR();
+    }, 500);
   };
 
-  const scanQRCode = async () => {
-    if (!videoRef.current || !canvasRef.current) return;
+  const scanForQR = async () => {
+    if (!videoRef.current || !canvasRef.current || processing) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -241,7 +149,7 @@ const QuickScanner = () => {
 
     if (!context || video.videoWidth === 0 || video.videoHeight === 0) return;
 
-    // Set canvas size to match video
+    // Set canvas dimensions
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
@@ -250,18 +158,19 @@ const QuickScanner = () => {
 
     // Get image data
     const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-    
+
     try {
-      // Use jsQR library to decode QR code
-      const { default: jsQR } = await import('jsqr');
+      // Import jsQR dynamically
+      const jsQR = (await import('jsqr')).default;
+      
+      // Scan for QR code
       const code = jsQR(imageData.data, imageData.width, imageData.height);
       
-      if (code && code.data && code.data !== currentScan) {
-        setCurrentScan(code.data);
+      if (code && code.data) {
         await processQRCode(code.data);
       }
     } catch (error) {
-      console.error('QR scanning error:', error);
+      console.error('QR scan error:', error);
     }
   };
 
@@ -271,24 +180,21 @@ const QuickScanner = () => {
     setProcessing(true);
     
     try {
-      // Extract visitor ID from QR code data
-      // Assuming QR code contains visitor ID or a URL with visitor ID
+      // Extract visitor ID from QR data
       let visitorId = qrData;
       
-      // If QR code contains a URL, extract visitor ID
-      if (qrData.includes('visitor=') || qrData.includes('visitorId=')) {
-        const urlParams = new URLSearchParams(qrData.split('?')[1] || '');
-        visitorId = urlParams.get('visitor') || urlParams.get('visitorId') || qrData;
-      }
-      
-      // If it's a full URL, try to extract ID from path
-      if (qrData.startsWith('http')) {
+      // Handle URL formats
+      if (qrData.includes('visitor=')) {
+        const params = new URLSearchParams(qrData.split('?')[1] || '');
+        visitorId = params.get('visitor') || qrData;
+      } else if (qrData.includes('visitorId=')) {
+        const params = new URLSearchParams(qrData.split('?')[1] || '');
+        visitorId = params.get('visitorId') || qrData;
+      } else if (qrData.startsWith('http')) {
         const url = new URL(qrData);
         const pathParts = url.pathname.split('/');
         visitorId = pathParts[pathParts.length - 1] || qrData;
       }
-
-      console.log('Processing QR code:', { original: qrData, extracted: visitorId });
 
       const authToken = localStorage.getItem('authToken');
       if (!authToken) {
@@ -334,9 +240,6 @@ const QuickScanner = () => {
           title: "✅ Scan Successful",
           description: `${result.visitorName} checked in via QR code`,
         });
-
-        // Visual feedback
-        setCurrentScan('');
         
       } else {
         const scanResult: ScanResult = {
@@ -372,35 +275,17 @@ const QuickScanner = () => {
       });
     } finally {
       setProcessing(false);
+      
+      // Brief pause before next scan
+      setTimeout(() => {
+        // Ready for next scan
+      }, 1000);
     }
   };
 
   const clearResults = () => {
     setScanResults([]);
     setScanCount(0);
-  };
-
-  const testCamera = async () => {
-    try {
-      console.log('Testing camera access...');
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-      console.log('Camera test successful:', stream);
-      
-      toast({
-        title: "Camera Test Successful",
-        description: "Camera is accessible and working",
-      });
-      
-      // Stop the test stream
-      stream.getTracks().forEach(track => track.stop());
-    } catch (error: any) {
-      console.error('Camera test failed:', error);
-      toast({
-        title: "Camera Test Failed",
-        description: error.message,
-        variant: "destructive"
-      });
-    }
   };
 
   if (isLoading) {
@@ -447,22 +332,21 @@ const QuickScanner = () => {
             <CardContent>
               <div className="space-y-4">
                 {/* Camera View */}
-                <div className="relative bg-black rounded-lg overflow-hidden" style={{ aspectRatio: '4/3' }}>
-                  {isScanning ? (
+                <div className="relative bg-black rounded-lg overflow-hidden aspect-video">
+                  <video
+                    ref={videoRef}
+                    className="w-full h-full object-cover"
+                    playsInline
+                    muted
+                    autoPlay
+                  />
+                  <canvas
+                    ref={canvasRef}
+                    className="hidden"
+                  />
+                  
+                  {isScanning && (
                     <>
-                      <video
-                        ref={videoRef}
-                        className="w-full h-full object-cover"
-                        playsInline
-                        muted
-                        autoPlay
-                        controls={false}
-                        style={{ objectFit: 'cover' }}
-                      />
-                      <canvas
-                        ref={canvasRef}
-                        className="hidden"
-                      />
                       {/* Scanning Overlay */}
                       <div className="absolute inset-0 flex items-center justify-center">
                         <div className="border-2 border-green-400 rounded-lg w-48 h-48 relative">
@@ -477,6 +361,7 @@ const QuickScanner = () => {
                           )}
                         </div>
                       </div>
+                      
                       {/* Status Indicator */}
                       <div className="absolute top-4 left-4">
                         <Badge className="bg-green-500 text-white flex items-center gap-1">
@@ -485,8 +370,10 @@ const QuickScanner = () => {
                         </Badge>
                       </div>
                     </>
-                  ) : (
-                    <div className="w-full h-full flex items-center justify-center text-gray-400">
+                  )}
+                  
+                  {!isScanning && (
+                    <div className="absolute inset-0 flex items-center justify-center text-gray-400">
                       <div className="text-center">
                         <CameraOff className="w-16 h-16 mx-auto mb-4" />
                         <p className="text-lg font-medium">Camera Off</p>
@@ -496,75 +383,43 @@ const QuickScanner = () => {
                   )}
                 </div>
 
-                {/* Camera Error */}
-                {cameraError && (
-                  <Alert variant="destructive">
-                    <AlertTriangle className="h-4 w-4" />
-                    <AlertDescription>{cameraError}</AlertDescription>
-                  </Alert>
-                )}
-
                 {/* Controls */}
-                <div className="flex flex-col gap-2">
-                  <div className="flex gap-2">
-                    {!isScanning ? (
-                      <Button
-                        onClick={startScanning}
-                        className="flex-1 flex items-center gap-2"
-                      >
-                        <Camera className="w-4 h-4" />
-                        Start Scanning
-                      </Button>
-                    ) : (
-                      <Button
-                        onClick={stopScanning}
-                        variant="destructive"
-                        className="flex-1 flex items-center gap-2"
-                      >
-                        <CameraOff className="w-4 h-4" />
-                        Stop Scanning
-                      </Button>
-                    )}
-                    
-                    {scanResults.length > 0 && (
-                      <Button
-                        onClick={clearResults}
-                        variant="outline"
-                        className="flex items-center gap-2"
-                      >
-                        <RotateCcw className="w-4 h-4" />
-                        Clear
-                      </Button>
-                    )}
-                  </div>
-                  
-                  {!isScanning && (
+                <div className="flex gap-2">
+                  {!isScanning ? (
                     <Button
-                      onClick={testCamera}
+                      onClick={startCamera}
+                      className="flex-1 flex items-center gap-2"
+                    >
+                      <Camera className="w-4 h-4" />
+                      Start Scanning
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={stopCamera}
+                      variant="destructive"
+                      className="flex-1 flex items-center gap-2"
+                    >
+                      <CameraOff className="w-4 h-4" />
+                      Stop Scanning
+                    </Button>
+                  )}
+                  
+                  {scanResults.length > 0 && (
+                    <Button
+                      onClick={clearResults}
                       variant="outline"
-                      size="sm"
                       className="flex items-center gap-2"
                     >
-                      <Camera className="w-3 h-3" />
-                      Test Camera Access
+                      <RotateCcw className="w-4 h-4" />
+                      Clear
                     </Button>
                   )}
                 </div>
 
-                {/* Debug Info */}
-                {isScanning && (
-                  <div className="text-xs text-gray-500 bg-gray-50 p-2 rounded">
-                    <div>Scanner Status: {isScanning ? 'Active' : 'Inactive'}</div>
-                    <div>Video Ready State: {videoRef.current?.readyState || 'N/A'}</div>
-                    <div>Video Dimensions: {videoRef.current?.videoWidth || 0} x {videoRef.current?.videoHeight || 0}</div>
-                    <div>Stream Active: {streamRef.current?.active ? 'Yes' : 'No'}</div>
-                  </div>
-                )}
-
                 {/* Instructions */}
                 <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
                   <h4 className="font-medium text-blue-900 mb-2 flex items-center gap-2">
-                    <Scan className="w-4 h-4" />
+                    <QrCode className="w-4 h-4" />
                     How to use:
                   </h4>
                   <ul className="text-sm text-blue-800 space-y-1">
@@ -583,7 +438,7 @@ const QuickScanner = () => {
           <Card className="h-fit">
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Clock className="w-5 h-5 text-green-600" />
+                <CheckCircle className="w-5 h-5 text-green-600" />
                 Scan Results ({scanResults.length})
               </CardTitle>
             </CardHeader>
