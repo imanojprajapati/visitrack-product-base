@@ -1,0 +1,137 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test QR Codes - Visitrack Scanner</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .qr-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+        }
+        .qr-card {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            text-align: center;
+        }
+        .qr-code {
+            max-width: 100%;
+            height: auto;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+        }
+        .visitor-id {
+            font-family: monospace;
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+            word-break: break-all;
+        }
+        .instructions {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 5px;
+            padding: 15px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🔍 Test QR Codes for Visitrack Scanner</h1>
+        <p>Use these QR codes to test the Quick Scanner functionality</p>
+    </div>
+
+    <div class="instructions">
+        <h3>📱 How to test:</h3>
+        <ol>
+            <li>Open the Visitrack admin panel</li>
+            <li>Navigate to "Quick Scanner" page</li>
+            <li>Click "Start Scanning"</li>
+            <li>Point your camera at any of the QR codes below</li>
+            <li>The scanner should automatically detect and process the visitor ID</li>
+        </ol>
+        <p><strong>Note:</strong> Make sure you have test visitor data in your database with these IDs.</p>
+    </div>
+
+    <div class="qr-grid">
+        
+        <div class="qr-card">
+            <h3>Test Visitor 1</h3>
+            <img src="./qr-codes/visitor-685bcfea4da2251d0ea053e1.png" alt="QR Code for 685bcfea4da2251d0ea053e1" class="qr-code">
+            <div class="visitor-id">
+                <strong>Visitor ID:</strong><br>
+                685bcfea4da2251d0ea053e1
+            </div>
+        </div>
+        
+        <div class="qr-card">
+            <h3>Test Visitor 2</h3>
+            <img src="./qr-codes/visitor-507f1f77bcf86cd799439011.png" alt="QR Code for 507f1f77bcf86cd799439011" class="qr-code">
+            <div class="visitor-id">
+                <strong>Visitor ID:</strong><br>
+                507f1f77bcf86cd799439011
+            </div>
+        </div>
+        
+        <div class="qr-card">
+            <h3>Test Visitor 3</h3>
+            <img src="./qr-codes/visitor-507f191e810c19729de860ea.png" alt="QR Code for 507f191e810c19729de860ea" class="qr-code">
+            <div class="visitor-id">
+                <strong>Visitor ID:</strong><br>
+                507f191e810c19729de860ea
+            </div>
+        </div>
+        
+        <div class="qr-card">
+            <h3>Test Visitor 4</h3>
+            <img src="./qr-codes/visitor-507f191e810c19729de860eb.png" alt="QR Code for 507f191e810c19729de860eb" class="qr-code">
+            <div class="visitor-id">
+                <strong>Visitor ID:</strong><br>
+                507f191e810c19729de860eb
+            </div>
+        </div>
+        
+        <div class="qr-card">
+            <h3>Test Visitor 5</h3>
+            <img src="./qr-codes/visitor-507f191e810c19729de860ec.png" alt="QR Code for 507f191e810c19729de860ec" class="qr-code">
+            <div class="visitor-id">
+                <strong>Visitor ID:</strong><br>
+                507f191e810c19729de860ec
+            </div>
+        </div>
+        
+    </div>
+
+    <div class="instructions" style="margin-top: 30px;">
+        <h3>🛠️ Development Notes:</h3>
+        <ul>
+            <li>QR codes contain plain visitor IDs</li>
+            <li>Scanner extracts ID and calls <code>/api/scanner/qr-entry</code></li>
+            <li>Visitor entry type is updated to "QR" and status to "Visited"</li>
+            <li>All scan activities are logged in the entry logs</li>
+        </ul>
+    </div>
+</body>
+</html>
+  
