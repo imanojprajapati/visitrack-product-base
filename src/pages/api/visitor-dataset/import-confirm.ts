@@ -52,9 +52,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const [fields, files] = await form.parse(req);
     
     const uploadedFile = Array.isArray(files.file) ? files.file[0] : files.file;
+    const columnMappings = JSON.parse((Array.isArray(fields.columnMappings) ? fields.columnMappings[0] : fields.columnMappings) || '{}');
     
     if (!uploadedFile) {
       return res.status(400).json({ message: 'No file uploaded' });
+    }
+
+    if (!columnMappings || Object.keys(columnMappings).length === 0) {
+      return res.status(400).json({ message: 'No column mappings provided' });
     }
 
     const filePath = uploadedFile.filepath;
@@ -69,32 +74,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         const fileContent = fs.readFileSync(filePath, 'utf8');
         const parseResult = Papa.parse(fileContent, {
           header: true,
-          skipEmptyLines: true,
-          transformHeader: (header) => {
-            // Normalize header names to match database fields
-            const headerMap: { [key: string]: string } = {
-              'name': 'fullName',
-              'full name': 'fullName',
-              'fullname': 'fullName',
-              'email': 'email',
-              'email address': 'email',
-              'phone': 'phoneNumber',
-              'phone number': 'phoneNumber',
-              'phonenumber': 'phoneNumber',
-              'mobile': 'phoneNumber',
-              'company': 'company',
-              'organization': 'company',
-              'city': 'city',
-              'state': 'state',
-              'country': 'country',
-              'pincode': 'pincode',
-              'pin code': 'pincode',
-              'postal code': 'pincode',
-              'zip code': 'pincode',
-              'zip': 'pincode'
-            };
-            return headerMap[header.toLowerCase()] || header;
-          }
+          skipEmptyLines: true
         });
         
         if (parseResult.errors.length > 0) {
@@ -102,6 +82,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         }
         
         parsedData = parseResult.data;
+        
       } else if (fileExtension === 'xlsx' || fileExtension === 'xls') {
         // Parse Excel file
         const workbook = XLSX.readFile(filePath);
@@ -113,30 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           throw new Error('Excel file must have at least a header row and one data row');
         }
         
-        const headers = (jsonData[0] as string[]).map(header => {
-          const headerMap: { [key: string]: string } = {
-            'name': 'fullName',
-            'full name': 'fullName',
-            'fullname': 'fullName',
-            'email': 'email',
-            'email address': 'email',
-            'phone': 'phoneNumber',
-            'phone number': 'phoneNumber',
-            'phonenumber': 'phoneNumber',
-            'mobile': 'phoneNumber',
-            'company': 'company',
-            'organization': 'company',
-            'city': 'city',
-            'state': 'state',
-            'country': 'country',
-            'pincode': 'pincode',
-            'pin code': 'pincode',
-            'postal code': 'pincode',
-            'zip code': 'pincode',
-            'zip': 'pincode'
-          };
-          return headerMap[header?.toLowerCase()] || header;
-        });
+        const headers = (jsonData[0] as string[]).filter(h => h && h.toString().trim());
         
         parsedData = (jsonData.slice(1) as any[][]).map(row => {
           const obj: any = {};
@@ -158,9 +116,24 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         return res.status(400).json({ message: 'No valid data found in the file' });
       }
 
-      // Process and validate the data
+      // Process and validate the data using column mappings
       const processedData = parsedData
-        .filter(row => row.fullName || row.email || row.phoneNumber) // At least one of these fields must be present
+        .map(row => {
+          const mappedRow: any = {};
+          
+          // Apply column mappings
+          Object.entries(columnMappings).forEach(([fileColumn, dbField]) => {
+            if (dbField && dbField !== 'ignore' && row[fileColumn] !== undefined && row[fileColumn] !== null && row[fileColumn] !== '') {
+              mappedRow[dbField as string] = row[fileColumn];
+            }
+          });
+          
+          return mappedRow;
+        })
+        .filter(row => {
+          // At least one of the required fields must be present
+          return row.fullName || row.email || row.phoneNumber;
+        })
         .map(row => {
           const currentTime = new Date();
           return {
@@ -175,7 +148,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
             pincode: row.pincode || '',
             createdAt: currentTime,
             updatedAt: currentTime,
-            // Include any extra fields that might be in the import data
+            // Include any extra mapped fields
             ...Object.keys(row).reduce((acc, key) => {
               if (!['fullName', 'email', 'phoneNumber', 'company', 'city', 'state', 'country', 'pincode'].includes(key)) {
                 acc[key] = row[key];
@@ -186,19 +159,31 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         });
 
       if (processedData.length === 0) {
-        return res.status(400).json({ message: 'No valid records found to import' });
+        return res.status(400).json({ message: 'No valid records found to import after applying column mappings' });
+      }
+
+      // Check for required field mappings
+      const requiredFields = ['fullName', 'email', 'phoneNumber'];
+      const mappedDbFields = Object.values(columnMappings).filter(field => field && field !== 'ignore');
+      const hasRequiredField = requiredFields.some(field => mappedDbFields.includes(field));
+      
+      if (!hasRequiredField) {
+        return res.status(400).json({ 
+          message: 'At least one required field (Full Name, Email, or Phone Number) must be mapped' 
+        });
       }
 
       // Insert the data into the database
       const result = await db.collection('visitordataset').insertMany(processedData);
 
-      console.log(`✅ [Import API] Successfully imported ${result.insertedCount} records`);
+      console.log(`✅ [Import Confirm API] Successfully imported ${result.insertedCount} records`);
 
       return res.status(200).json({
         message: `Successfully imported ${result.insertedCount} records`,
         imported: result.insertedCount,
         total: parsedData.length,
-        skipped: parsedData.length - processedData.length
+        skipped: parsedData.length - processedData.length,
+        columnMappings
       });
 
     } catch (fileError) {
@@ -210,7 +195,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
   } catch (error: any) {
-    console.error('❌ [Import API] Error:', error);
+    console.error('❌ [Import Confirm API] Error:', error);
     
     if (error.message === 'Authentication required' || error.message === 'Invalid token') {
       return res.status(401).json({ message: error.message });

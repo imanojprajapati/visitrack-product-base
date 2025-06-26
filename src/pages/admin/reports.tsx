@@ -6,6 +6,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Label } from '@/components/ui/label';
 import { VisitorDataset } from '@/types/visitor';
 
 import { 
@@ -99,6 +102,12 @@ const Reports = () => {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState('');
   const [importSuccess, setImportSuccess] = useState('');
+  
+  // Enhanced import states
+  const [showImportDialog, setShowImportDialog] = useState(false);
+  const [importPreviewData, setImportPreviewData] = useState<any>(null);
+  const [columnMappings, setColumnMappings] = useState<{ [key: string]: string }>({});
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // Cascading Filter States
   const [filters, setFilters] = useState({
@@ -493,6 +502,15 @@ const Reports = () => {
       return;
     }
 
+    setSelectedFile(file);
+    setShowImportDialog(true);
+    await handleFilePreview(file);
+    
+    // Clear the file input
+    event.target.value = '';
+  };
+
+  const handleFilePreview = async (file: File) => {
     const authToken = localStorage.getItem('authToken');
     if (!authToken) {
       router.push('/login');
@@ -507,7 +525,51 @@ const Reports = () => {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch('/api/visitor-dataset/import', {
+      const response = await fetch('/api/visitor-dataset/import-preview', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setImportPreviewData(result);
+        setColumnMappings(result.suggestedMappings || {});
+      } else {
+        setImportError(result.message || 'Failed to preview file');
+        setShowImportDialog(false);
+      }
+    } catch (error) {
+      console.error('Preview error:', error);
+      setImportError('Failed to preview file. Please try again.');
+      setShowImportDialog(false);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!selectedFile || !importPreviewData) return;
+
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) {
+      router.push('/login');
+      return;
+    }
+
+    try {
+      setImporting(true);
+      setImportError('');
+      setImportSuccess('');
+
+      const formData = new FormData();
+      formData.append('file', selectedFile);
+      formData.append('columnMappings', JSON.stringify(columnMappings));
+
+      const response = await fetch('/api/visitor-dataset/import-confirm', {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -519,25 +581,41 @@ const Reports = () => {
 
       if (response.ok) {
         setImportSuccess(result.message);
+        setShowImportDialog(false);
+        setImportPreviewData(null);
+        setColumnMappings({});
+        setSelectedFile(null);
+        
         // Refresh the center DB data
         await fetchCenterDbData(1, centerDbSearchTerm);
+        
         // Clear success message after 5 seconds
         setTimeout(() => setImportSuccess(''), 5000);
       } else {
         setImportError(result.message || 'Failed to import data');
-        // Clear error message after 10 seconds
-        setTimeout(() => setImportError(''), 10000);
       }
     } catch (error) {
       console.error('Import error:', error);
       setImportError('Failed to import data. Please try again.');
-      // Clear error message after 10 seconds
-      setTimeout(() => setImportError(''), 10000);
     } finally {
       setImporting(false);
-      // Clear the file input
-      event.target.value = '';
     }
+  };
+
+  const handleColumnMappingChange = (fileColumn: string, dbField: string) => {
+    setColumnMappings(prev => ({
+      ...prev,
+      [fileColumn]: dbField
+    }));
+  };
+
+  const handleCancelImport = () => {
+    setShowImportDialog(false);
+    setImportPreviewData(null);
+    setColumnMappings({});
+    setSelectedFile(null);
+    setImportError('');
+    setImportSuccess('');
   };
 
   // Show loading while checking authentication
@@ -1145,17 +1223,15 @@ const Reports = () => {
                             accept=".csv,.xlsx,.xls"
                             onChange={handleFileImport}
                             className="hidden"
-                            id="file-import"
+                            id="enhanced-file-import"
                             disabled={importing}
                           />
                           <Button 
-                            asChild
                             size="sm"
                             disabled={importing}
+                            onClick={() => setShowImportDialog(true)}
                           >
-                            <label htmlFor="file-import" className="cursor-pointer">
-                              {importing ? 'Importing...' : 'Browse'}
-                            </label>
+                            {importing ? 'Processing...' : 'Import'}
                           </Button>
                         </div>
                       </div>
@@ -1199,27 +1275,7 @@ const Reports = () => {
                 </Card>
               )}
 
-              {/* Import Instructions */}
-              <Card>
-                <CardContent className="p-6">
-                  <div className="flex items-start gap-4">
-                    <div className="p-2 bg-blue-50 rounded-lg">
-                      <FileSpreadsheet className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div className="flex-1">
-                      <h3 className="font-medium text-gray-900 mb-2">Import Instructions</h3>
-                                             <div className="text-sm text-gray-600 space-y-2">
-                         <p>• Supported formats: CSV, Excel (.xlsx, .xls)</p>
-                         <p>• Maximum file size: 100MB</p>
-                         <p>• Required columns: At least one of Name, Email, or Phone Number</p>
-                         <p>• Supported columns: Name, Email, Phone, Company, City, State, Country, Pincode</p>
-                         <p>• Extra columns will be automatically included in the import</p>
-                         <p>• Duplicate detection is based on email and phone number</p>
-                       </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+
 
               {/* Search */}
               <Card>
@@ -1364,6 +1420,247 @@ const Reports = () => {
           )}
         </div>
       </div>
+
+      {/* Enhanced Import Dialog */}
+      <Dialog open={showImportDialog} onOpenChange={setShowImportDialog}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Enhanced Import with Column Mapping</DialogTitle>
+            <DialogDescription>
+              Smart import system with automatic column detection and flexible mapping options.
+            </DialogDescription>
+          </DialogHeader>
+
+          {!importPreviewData && importing && (
+            <div className="flex justify-center items-center py-12">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mr-3"></div>
+              <span>Processing file...</span>
+            </div>
+          )}
+
+          {!importPreviewData && !importing && (
+            <div className="space-y-6">
+              {/* Import Instructions */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-6">
+                <div className="flex items-start gap-4">
+                  <div className="p-2 bg-blue-100 rounded-lg">
+                    <FileSpreadsheet className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <div className="flex-1">
+                    <h3 className="font-medium text-blue-800 mb-3">How Enhanced Import Works</h3>
+                    <div className="text-sm text-blue-700 space-y-2">
+                      <p>• <strong>Smart Import:</strong> Upload file and map columns to database fields</p>
+                      <p>• <strong>Supported formats:</strong> CSV, Excel (.xlsx, .xls)</p>
+                      <p>• <strong>File size limit:</strong> 100MB maximum</p>
+                      <p>• <strong>Column mapping:</strong> Preview and map any column to any database field</p>
+                      <p>• <strong>Auto-detection:</strong> System suggests column mappings automatically</p>
+                      <p>• <strong>Flexible requirements:</strong> At least one of Name, Email, or Phone Number</p>
+                      <p>• <strong>Custom fields:</strong> Any unmapped columns are preserved as custom fields</p>
+                      <p>• <strong>Data preview:</strong> See exactly what will be imported before confirming</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* File Upload Area */}
+              <div className="border-2 border-dashed border-gray-300 rounded-lg p-8 text-center hover:border-blue-400 transition-colors">
+                <div className="space-y-4">
+                  <div className="mx-auto w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
+                    <Upload className="w-6 h-6 text-gray-600" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-medium text-gray-900">Upload your file</h3>
+                    <p className="text-sm text-gray-600">Choose a CSV or Excel file to begin the import process</p>
+                  </div>
+                  <Button 
+                    onClick={() => document.getElementById('enhanced-file-import')?.click()}
+                    className="mx-auto"
+                  >
+                    Choose File
+                  </Button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {importPreviewData && (
+            <div className="space-y-6">
+              {/* File Info */}
+              <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                <div className="flex items-center gap-2">
+                  <FileSpreadsheet className="w-5 h-5 text-blue-600" />
+                  <div>
+                    <h4 className="font-medium text-blue-800">File: {importPreviewData.fileName}</h4>
+                    <p className="text-sm text-blue-600">
+                      {importPreviewData.headers.length} columns detected, {importPreviewData.totalRows} preview rows
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Column Mapping */}
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Column Mapping</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {importPreviewData.headers.map((header: string) => (
+                    <div key={header} className="border border-gray-200 rounded-lg p-4">
+                      <Label className="text-sm font-medium text-gray-700 mb-2 block">
+                        File Column: <span className="font-semibold text-blue-600">{header}</span>
+                      </Label>
+                      <Select
+                        value={columnMappings[header] || 'ignore'}
+                        onValueChange={(value) => handleColumnMappingChange(header, value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select database field" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="ignore">Ignore this column</SelectItem>
+                          {importPreviewData.availableFields.map((field: any) => (
+                            <SelectItem key={field.key} value={field.key}>
+                              {field.label} {field.required && '(Required)'}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      
+                      {/* Show sample data */}
+                      <div className="mt-2">
+                        <Label className="text-xs text-gray-500">Sample data:</Label>
+                        <div className="text-xs text-gray-600 bg-gray-50 p-2 rounded mt-1 max-h-20 overflow-y-auto">
+                          {importPreviewData.previewData
+                            .slice(0, 3)
+                            .map((row: any, idx: number) => (
+                              <div key={idx}>{row[header] || '(empty)'}</div>
+                            ))}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Preview Table */}
+              <div>
+                <h3 className="text-lg font-semibold mb-4">Data Preview</h3>
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <div className="overflow-x-auto max-h-60">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50">
+                        <tr>
+                          {importPreviewData.headers.map((header: string) => (
+                            <th key={header} className="px-3 py-2 text-left font-medium text-gray-700 border-r">
+                              <div className="space-y-1">
+                                <div className="font-semibold">{header}</div>
+                                <div className="text-xs text-gray-500">
+                                  → {columnMappings[header] === 'ignore' ? 'Ignored' : 
+                                       columnMappings[header] ? 
+                                       importPreviewData.availableFields.find((f: any) => f.key === columnMappings[header])?.label : 
+                                       'Not mapped'}
+                                </div>
+                              </div>
+                            </th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {importPreviewData.previewData.map((row: any, idx: number) => (
+                          <tr key={idx} className={idx % 2 === 0 ? 'bg-white' : 'bg-gray-25'}>
+                            {importPreviewData.headers.map((header: string) => (
+                              <td key={header} className="px-3 py-2 border-r text-gray-600">
+                                {row[header] || '-'}
+                              </td>
+                            ))}
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+
+              {/* Import Status */}
+              {importError && (
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-center gap-2">
+                    <div className="p-1 bg-red-100 rounded-full">
+                      <FileText className="w-4 h-4 text-red-600" />
+                    </div>
+                    <div>
+                      <h4 className="font-medium text-red-800">Import Error</h4>
+                      <p className="text-sm text-red-600">{importError}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Action Buttons */}
+              <div className="flex gap-4 pt-4 border-t">
+                <Button 
+                  onClick={handleConfirmImport}
+                  disabled={importing || Object.values(columnMappings).every(v => v === 'ignore')}
+                  className="flex-1"
+                >
+                  {importing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                      Importing...
+                    </>
+                  ) : (
+                    'Confirm Import'
+                  )}
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={handleCancelImport}
+                  disabled={importing}
+                  className="flex-1"
+                >
+                  Cancel
+                </Button>
+              </div>
+
+              {/* Mapping Summary */}
+              <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+                <h4 className="font-medium text-gray-800 mb-2">Mapping Summary</h4>
+                <div className="text-sm text-gray-600 space-y-1">
+                  <div>
+                    <strong>Required fields mapped:</strong> {
+                      Object.values(columnMappings).filter(field => 
+                        ['fullName', 'email', 'phoneNumber'].includes(field)
+                      ).length
+                    } / 3
+                  </div>
+                  <div>
+                    <strong>Total fields mapped:</strong> {
+                      Object.values(columnMappings).filter(field => field !== 'ignore').length
+                    } / {importPreviewData.headers.length}
+                  </div>
+                  <div>
+                    <strong>Ignored columns:</strong> {
+                      Object.values(columnMappings).filter(field => field === 'ignore').length
+                    }
+                  </div>
+                </div>
+                
+                {Object.values(columnMappings).every(v => v === 'ignore') && (
+                  <div className="mt-2 text-sm text-amber-600">
+                    ⚠️ All columns are set to ignore. Please map at least one field to proceed.
+                  </div>
+                )}
+                
+                {!Object.values(columnMappings).some(field => 
+                  ['fullName', 'email', 'phoneNumber'].includes(field)
+                ) && Object.values(columnMappings).some(field => field !== 'ignore') && (
+                  <div className="mt-2 text-sm text-amber-600">
+                    ⚠️ At least one required field (Full Name, Email, or Phone Number) must be mapped.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </AdminLayout>
   );
 };
