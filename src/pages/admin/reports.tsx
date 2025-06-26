@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
 import AdminLayout from '@/components/AdminLayout';
@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { VisitorDataset } from '@/types/visitor';
+import { useDebounceSearch } from '@/hooks/use-debounced-search';
 
 import { 
   FileText, 
@@ -27,7 +28,8 @@ import {
   Clock,
   Filter,
   Upload,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Users
 } from 'lucide-react';
 
 interface Visitor {
@@ -80,9 +82,9 @@ const Reports = () => {
   const router = useRouter();
   const [allVisitors, setAllVisitors] = useState<Visitor[]>([]);
   const [visitors, setVisitors] = useState<Visitor[]>([]);
+  const [events, setEvents] = useState<Event[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalCount, setTotalCount] = useState(0);
@@ -93,10 +95,31 @@ const Reports = () => {
   const [centerDbData, setCenterDbData] = useState<VisitorDataset[]>([]);
   const [centerDbLoading, setCenterDbLoading] = useState(false);
   const [centerDbError, setCenterDbError] = useState('');
-  const [centerDbSearchTerm, setCenterDbSearchTerm] = useState('');
   const [centerDbCurrentPage, setCenterDbCurrentPage] = useState(1);
   const [centerDbTotalPages, setCenterDbTotalPages] = useState(1);
   const [centerDbTotalCount, setCenterDbTotalCount] = useState(0);
+
+  // Debounced search for visitor log
+  const visitorLogSearch = useDebounceSearch({
+    delay: 1500,
+    onSearch: useCallback((searchTerm: string) => {
+      if (isAuthenticated && user?.id) {
+        setCurrentPage(1);
+        fetchVisitors(1, searchTerm, true);
+      }
+    }, [isAuthenticated, user?.id])
+  });
+
+  // Debounced search for center DB
+  const centerDbSearch = useDebounceSearch({
+    delay: 1500,
+    onSearch: useCallback((searchTerm: string) => {
+      if (isAuthenticated && user?.id && activeTab === 'center-db') {
+        setCenterDbCurrentPage(1);
+        fetchCenterDbData(1, searchTerm);
+      }
+    }, [isAuthenticated, user?.id, activeTab])
+  });
 
   // Import states
   const [importing, setImporting] = useState(false);
@@ -109,22 +132,32 @@ const Reports = () => {
   const [columnMappings, setColumnMappings] = useState<{ [key: string]: string }>({});
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
-  // Cascading Filter States
+  // Working Filter States
   const [filters, setFilters] = useState({
-    fullName: 'all',
-    email: 'all',
-    phoneNumber: 'all',
-    company: 'all',
-    city: 'all',
+    eventName: 'all',
+    status: 'all',
+    eventLocation: 'all',
     state: 'all',
+    city: 'all',
     country: 'all',
     pincode: 'all',
-    eventName: 'all',
-    eventLocation: 'all',
-    status: 'all',
     source: 'all'
   });
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Filter options (unique values from data)
+  const [filterOptions, setFilterOptions] = useState({
+    eventNames: [] as string[],
+    eventLocations: [] as string[],
+    states: [] as string[],
+    cities: [] as string[],
+    countries: [] as string[],
+    pincodes: [] as string[],
+    sources: [] as string[]
+  });
+
+  // Pagination settings
+  const ITEMS_PER_PAGE = 50;
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -134,7 +167,7 @@ const Reports = () => {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  const fetchVisitors = async (page: number = 1, search: string = '', status: string = 'all') => {
+  const fetchVisitors = async (page: number = 1, search: string = '', useFilters: boolean = true) => {
     if (!user?.id) return;
 
     const authToken = localStorage.getItem('authToken');
@@ -145,13 +178,49 @@ const Reports = () => {
 
     try {
       setLoading(true);
+      setError('');
 
       const params = new URLSearchParams({
         page: page.toString(),
-        limit: '50', // Show more data for reports
-        ...(search && { search }),
-        ...(status !== 'all' && { status })
+        limit: ITEMS_PER_PAGE.toString()
       });
+
+      if (search && search.trim()) {
+        params.append('search', search.trim());
+      }
+      
+      // Apply filters if useFilters is true
+      if (useFilters) {
+        if (filters.eventName && filters.eventName !== 'all') {
+          params.append('eventName', filters.eventName);
+        }
+        if (filters.status && filters.status !== 'all') {
+          params.append('status', filters.status);
+        }
+        if (filters.eventLocation && filters.eventLocation !== 'all') {
+          params.append('eventLocation', filters.eventLocation);
+        }
+        if (filters.state && filters.state !== 'all') {
+          params.append('state', filters.state);
+        }
+        if (filters.city && filters.city !== 'all') {
+          params.append('city', filters.city);
+        }
+        if (filters.country && filters.country !== 'all') {
+          params.append('country', filters.country);
+        }
+        if (filters.pincode && filters.pincode !== 'all') {
+          params.append('pincode', filters.pincode);
+        }
+        if (filters.source && filters.source !== 'all') {
+          params.append('source', filters.source);
+        }
+      } else {
+        // Use selectedStatus for backward compatibility
+        if (selectedStatus && selectedStatus !== 'all') {
+          params.append('status', selectedStatus);
+        }
+      }
 
       const response = await fetch(`/api/visitors?${params}`, {
         headers: {
@@ -171,17 +240,52 @@ const Reports = () => {
       }
 
       const data: VisitorResponse = await response.json();
-      setAllVisitors(data.visitors);
       setVisitors(data.visitors);
       setCurrentPage(data.pagination.current);
       setTotalPages(data.pagination.total);
       setTotalCount(data.pagination.count);
+      
+      // Update filter options with unique values from all data
+      updateFilterOptions(data.visitors);
+      
+      console.log(`📊 [Reports] Fetched ${data.visitors.length} visitors (page ${data.pagination.current}/${data.pagination.total})`);
     } catch (error) {
       console.error('Error fetching visitors:', error);
       setError('Failed to load visitor data');
     } finally {
       setLoading(false);
     }
+  };
+
+  // Update filter options with unique values
+  const updateFilterOptions = (visitorData: Visitor[]) => {
+    const eventNames = Array.from(new Set(visitorData.map(v => v.eventName).filter(Boolean)));
+    const eventLocations = Array.from(new Set(visitorData.map(v => v.eventLocation).filter(Boolean)));
+    const states = Array.from(new Set(visitorData.map(v => v.state).filter(Boolean)));
+    const cities = Array.from(new Set(visitorData.map(v => v.city).filter(Boolean)));
+    const countries = Array.from(new Set(visitorData.map(v => v.country).filter(Boolean)));
+    const pincodes = Array.from(new Set(visitorData.map(v => v.pincode).filter(Boolean)));
+    const sources = Array.from(new Set(visitorData.map(v => v.source).filter(Boolean)));
+
+    setFilterOptions({
+      eventNames: eventNames.sort(),
+      eventLocations: eventLocations.sort(),
+      states: states.sort(),
+      cities: cities.sort(),
+      countries: countries.sort(),
+      pincodes: pincodes.sort(),
+      sources: sources.sort()
+    });
+  };
+
+  // Handle filter changes
+  const handleFilterChange = (filterKey: string, value: string) => {
+    setFilters(prev => ({ ...prev, [filterKey]: value }));
+    setCurrentPage(1);
+    // Trigger immediate fetch with new filters
+    setTimeout(() => {
+      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm, true);
+    }, 100);
   };
 
   const fetchCenterDbData = async (page: number = 1, search: string = '') => {
@@ -200,7 +304,7 @@ const Reports = () => {
       const params = new URLSearchParams({
         all: 'true',
         page: page.toString(),
-        limit: '50',
+        limit: ITEMS_PER_PAGE.toString(),
         ...(search && { search })
       });
 
@@ -226,6 +330,8 @@ const Reports = () => {
       setCenterDbCurrentPage(data.pagination.current);
       setCenterDbTotalPages(data.pagination.total);
       setCenterDbTotalCount(data.pagination.count);
+      
+      console.log(`📊 [Center DB] Fetched ${data.visitorDataset.length} records (page ${data.pagination.current}/${data.pagination.total})`);
     } catch (error) {
       console.error('Error fetching visitor dataset:', error);
       setCenterDbError('Failed to load visitor dataset');
@@ -234,129 +340,55 @@ const Reports = () => {
     }
   };
 
+  // Initial data fetch
   useEffect(() => {
     if (isAuthenticated && user?.id) {
-      fetchVisitors(currentPage, searchTerm, selectedStatus);
+      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm, true);
     }
-  }, [isAuthenticated, user?.id, currentPage, searchTerm, selectedStatus]);
+  }, [isAuthenticated, user?.id]);
+
+  // Fetch visitors when filters change (reset to page 1)
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      setCurrentPage(1);
+      fetchVisitors(1, visitorLogSearch.debouncedSearchTerm, true);
+    }
+  }, [filters]);
+
+  // Fetch visitors when page changes (keep current search and filters)
+  useEffect(() => {
+    if (isAuthenticated && user?.id && currentPage > 1) {
+      fetchVisitors(currentPage, visitorLogSearch.debouncedSearchTerm, true);
+    }
+  }, [currentPage]);
 
   useEffect(() => {
     if (isAuthenticated && user?.id && activeTab === 'center-db') {
-      fetchCenterDbData(centerDbCurrentPage, centerDbSearchTerm);
+      fetchCenterDbData(1, centerDbSearch.debouncedSearchTerm); // Always start from page 1 when component mounts or tab changes
     }
-  }, [isAuthenticated, user?.id, activeTab, centerDbCurrentPage, centerDbSearchTerm]);
+  }, [isAuthenticated, user?.id, activeTab]);
 
-  // Frontend filtering logic
-  const applyFilters = () => {
-    let filtered = [...allVisitors];
-
-    // Apply each filter
-    Object.entries(filters).forEach(([key, value]) => {
-      if (value !== 'all') {
-        filtered = filtered.filter(visitor => {
-          const visitorValue = visitor[key as keyof Visitor];
-          if (typeof visitorValue === 'string') {
-            return visitorValue.toLowerCase().includes(value.toLowerCase());
-          }
-          return String(visitorValue).toLowerCase().includes(value.toLowerCase());
-        });
-      }
-    });
-
-    // Apply search term
-    if (searchTerm.trim()) {
-      const search = searchTerm.toLowerCase();
-      filtered = filtered.filter(visitor =>
-        visitor.fullName?.toLowerCase().includes(search) ||
-        visitor.email?.toLowerCase().includes(search) ||
-        visitor.phoneNumber?.toLowerCase().includes(search) ||
-        visitor.company?.toLowerCase().includes(search)
-      );
+  // Fetch center DB data when page changes (keep current search)
+  useEffect(() => {
+    if (isAuthenticated && user?.id && activeTab === 'center-db' && centerDbCurrentPage > 1) {
+      fetchCenterDbData(centerDbCurrentPage, centerDbSearch.debouncedSearchTerm);
     }
+  }, [centerDbCurrentPage]);
 
-    setVisitors(filtered);
-    setTotalCount(filtered.length);
-    setCurrentPage(1);
-    
-    // Update pagination
-    const itemsPerPage = 50;
-    setTotalPages(Math.ceil(filtered.length / itemsPerPage));
-  };
-
-  // Get paginated visitors for display
-  const getPaginatedVisitors = () => {
-    const itemsPerPage = 50;
-    const startIndex = (currentPage - 1) * itemsPerPage;
-    const endIndex = startIndex + itemsPerPage;
-    return visitors.slice(startIndex, endIndex);
-  };
-
+  // Handle pagination
   const handlePageChange = (newPage: number) => {
-    setCurrentPage(newPage);
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage);
+    }
   };
 
   const handleCenterDbPageChange = (newPage: number) => {
     setCenterDbCurrentPage(newPage);
   };
 
-  // Apply filters whenever filter state changes
-  useEffect(() => {
-    if (allVisitors.length > 0) {
-      applyFilters();
-    }
-  }, [filters, searchTerm, allVisitors]);
-
-  // Get unique values for filter options (cascading)
-  const getFilterOptions = (field: keyof Visitor) => {
-    let dataToFilter = [...allVisitors];
-    
-    // Apply other filters to create cascading effect
-    Object.entries(filters).forEach(([key, value]) => {
-      if (key !== field && value !== 'all') {
-        dataToFilter = dataToFilter.filter(visitor => {
-          const visitorValue = visitor[key as keyof Visitor];
-          if (typeof visitorValue === 'string') {
-            return visitorValue.toLowerCase().includes(value.toLowerCase());
-          }
-          return String(visitorValue).toLowerCase().includes(value.toLowerCase());
-        });
-      }
-    });
-
-    const values = dataToFilter.map(visitor => {
-      const value = visitor[field];
-      return typeof value === 'string' ? value : String(value);
-    }).filter(value => value && value !== '-' && value !== 'undefined');
-    
-    const uniqueSet = new Set(values);
-    const uniqueValues = Array.from(uniqueSet).sort();
-
-    return uniqueValues;
-  };
-
-  const handleFilterChange = (field: string, value: string) => {
-    setFilters(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  const clearAllFilters = () => {
-    setFilters({
-      fullName: 'all',
-      email: 'all',
-      phoneNumber: 'all',
-      company: 'all',
-      city: 'all',
-      state: 'all',
-      country: 'all',
-      pincode: 'all',
-      eventName: 'all',
-      eventLocation: 'all',
-      status: 'all',
-      source: 'all'
-    });
-    setSearchTerm('');
+  // Get visitors for display (no client-side pagination needed)
+  const getPaginatedVisitors = () => {
+    return visitors; // Already paginated by server
   };
 
   const formatDate = (dateString: string) => {
@@ -587,7 +619,7 @@ const Reports = () => {
         setSelectedFile(null);
         
         // Refresh the center DB data
-        await fetchCenterDbData(1, centerDbSearchTerm);
+        await fetchCenterDbData(1, centerDbSearch.debouncedSearchTerm);
         
         // Clear success message after 5 seconds
         setTimeout(() => setImportSuccess(''), 5000);
@@ -616,6 +648,35 @@ const Reports = () => {
     setSelectedFile(null);
     setImportError('');
     setImportSuccess('');
+  };
+
+  // Get status badge color
+  const getStatusColor = (status: string) => {
+    switch (status.toLowerCase()) {
+      case 'registration':
+        return 'bg-orange-100 text-orange-800';
+      case 'visited':
+        return 'bg-green-100 text-green-800';
+      default:
+        return 'bg-gray-100 text-gray-800';
+    }
+  };
+
+  const clearAllFilters = () => {
+    setFilters({
+      eventName: 'all',
+      status: 'all',
+      eventLocation: 'all',
+      state: 'all',
+      city: 'all',
+      country: 'all',
+      pincode: 'all',
+      source: 'all'
+    });
+    setSelectedStatus('all');
+    visitorLogSearch.clearSearch();
+    setCurrentPage(1);
+    fetchVisitors(1, '', true);
   };
 
   // Show loading while checking authentication
@@ -757,13 +818,29 @@ const Reports = () => {
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                       <Input
                         placeholder="Search by name, email, phone, or company..."
-                        value={searchTerm}
-                        onChange={(e) => setSearchTerm(e.target.value)}
+                        value={visitorLogSearch.searchTerm}
+                        onChange={(e) => visitorLogSearch.updateSearchTerm(e.target.value)}
                         className="pl-10"
                       />
+                      {visitorLogSearch.isSearching && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        </div>
+                      )}
                     </div>
                     
                     <div className="flex items-center gap-2">
+                      <Select value={selectedStatus} onValueChange={setSelectedStatus}>
+                        <SelectTrigger className="w-40">
+                          <SelectValue placeholder="Filter by status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All Status</SelectItem>
+                          <SelectItem value="Registration">Registration</SelectItem>
+                          <SelectItem value="Visited">Visited</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      
                       <Button
                         type="button"
                         variant="outline"
@@ -786,205 +863,166 @@ const Reports = () => {
                           onClick={clearAllFilters}
                           className="text-red-600 hover:text-red-700"
                         >
-                          Clear All
+                          Clear All Filters
                         </Button>
                       )}
                     </div>
                   </div>
 
-                  {/* Cascading Filters */}
+                  {/* Working Filter Options */}
                   {showFilters && (
                     <div className="border-t pt-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                        {/* Name Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Name</label>
-                          <select
-                            value={filters.fullName}
-                            onChange={(e) => handleFilterChange('fullName', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Names</option>
-                            {getFilterOptions('fullName').map(name => (
-                              <option key={name} value={name}>{name}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Email Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-                          <select
-                            value={filters.email}
-                            onChange={(e) => handleFilterChange('email', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Emails</option>
-                            {getFilterOptions('email').map(email => (
-                              <option key={email} value={email}>{email}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Phone Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Phone No</label>
-                          <select
-                            value={filters.phoneNumber}
-                            onChange={(e) => handleFilterChange('phoneNumber', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Phones</option>
-                            {getFilterOptions('phoneNumber').map(phone => (
-                              <option key={phone} value={phone}>{phone}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Company Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Company</label>
-                          <select
-                            value={filters.company}
-                            onChange={(e) => handleFilterChange('company', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Companies</option>
-                            {getFilterOptions('company').map(company => (
-                              <option key={company} value={company}>{company}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* City Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
-                          <select
-                            value={filters.city}
-                            onChange={(e) => handleFilterChange('city', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Cities</option>
-                            {getFilterOptions('city').map(city => (
-                              <option key={city} value={city}>{city}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* State Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">State</label>
-                          <select
-                            value={filters.state}
-                            onChange={(e) => handleFilterChange('state', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All States</option>
-                            {getFilterOptions('state').map(state => (
-                              <option key={state} value={state}>{state}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Country Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
-                          <select
-                            value={filters.country}
-                            onChange={(e) => handleFilterChange('country', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Countries</option>
-                            {getFilterOptions('country').map(country => (
-                              <option key={country} value={country}>{country}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Pincode Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Pincode</label>
-                          <select
-                            value={filters.pincode}
-                            onChange={(e) => handleFilterChange('pincode', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Pincodes</option>
-                            {getFilterOptions('pincode').map(pincode => (
-                              <option key={pincode} value={pincode}>{pincode}</option>
-                            ))}
-                          </select>
-                        </div>
-
                         {/* Event Name Filter */}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Event Name</label>
-                          <select
-                            value={filters.eventName}
-                            onChange={(e) => handleFilterChange('eventName', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Events</option>
-                            {getFilterOptions('eventName').map(eventName => (
-                              <option key={eventName} value={eventName}>{eventName}</option>
-                            ))}
-                          </select>
-                        </div>
-
-                        {/* Event Location Filter */}
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Event Location</label>
-                          <select
-                            value={filters.eventLocation}
-                            onChange={(e) => handleFilterChange('eventLocation', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Locations</option>
-                            {getFilterOptions('eventLocation').map(location => (
-                              <option key={location} value={location}>{location}</option>
-                            ))}
-                          </select>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">Event Name</Label>
+                          <Select value={filters.eventName} onValueChange={(value) => handleFilterChange('eventName', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All Events" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Events</SelectItem>
+                              {filterOptions.eventNames.map((eventName) => (
+                                <SelectItem key={eventName} value={eventName}>
+                                  {eventName}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
 
                         {/* Status Filter */}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Status</label>
-                          <select
-                            value={filters.status}
-                            onChange={(e) => handleFilterChange('status', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Status</option>
-                            {getFilterOptions('status').map(status => (
-                              <option key={status} value={status}>{status}</option>
-                            ))}
-                          </select>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">Status</Label>
+                          <Select value={filters.status} onValueChange={(value) => handleFilterChange('status', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All Status" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Status</SelectItem>
+                              <SelectItem value="Registration">Registration</SelectItem>
+                              <SelectItem value="Visited">Visited</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Event Location Filter */}
+                        <div>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">Event Location</Label>
+                          <Select value={filters.eventLocation} onValueChange={(value) => handleFilterChange('eventLocation', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All Locations" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Locations</SelectItem>
+                              {filterOptions.eventLocations.map((location) => (
+                                <SelectItem key={location} value={location}>
+                                  {location}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* State Filter */}
+                        <div>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">State</Label>
+                          <Select value={filters.state} onValueChange={(value) => handleFilterChange('state', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All States" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All States</SelectItem>
+                              {filterOptions.states.map((state) => (
+                                <SelectItem key={state} value={state}>
+                                  {state}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* City Filter */}
+                        <div>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">City</Label>
+                          <Select value={filters.city} onValueChange={(value) => handleFilterChange('city', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All Cities" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Cities</SelectItem>
+                              {filterOptions.cities.map((city) => (
+                                <SelectItem key={city} value={city}>
+                                  {city}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Country Filter */}
+                        <div>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">Country</Label>
+                          <Select value={filters.country} onValueChange={(value) => handleFilterChange('country', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All Countries" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Countries</SelectItem>
+                              {filterOptions.countries.map((country) => (
+                                <SelectItem key={country} value={country}>
+                                  {country}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+
+                        {/* Pincode Filter */}
+                        <div>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">Pincode</Label>
+                          <Select value={filters.pincode} onValueChange={(value) => handleFilterChange('pincode', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All Pincodes" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Pincodes</SelectItem>
+                              {filterOptions.pincodes.map((pincode) => (
+                                <SelectItem key={pincode} value={pincode}>
+                                  {pincode}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
 
                         {/* Source Filter */}
                         <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">Source</label>
-                          <select
-                            value={filters.source}
-                            onChange={(e) => handleFilterChange('source', e.target.value)}
-                            className="w-full px-3 py-2 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                          >
-                            <option value="all">All Sources</option>
-                            {getFilterOptions('source').map(source => (
-                              <option key={source} value={source}>{source}</option>
-                            ))}
-                          </select>
+                          <Label className="text-sm font-medium text-gray-700 mb-1">Source</Label>
+                          <Select value={filters.source} onValueChange={(value) => handleFilterChange('source', value)}>
+                            <SelectTrigger className="w-full">
+                              <SelectValue placeholder="All Sources" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="all">All Sources</SelectItem>
+                              {filterOptions.sources.map((source) => (
+                                <SelectItem key={source} value={source}>
+                                  {source}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
                         </div>
                       </div>
 
-                      {/* Filter Summary */}
+                      {/* Active Filters Summary */}
                       <div className="mt-4 pt-4 border-t">
                         <div className="flex flex-wrap gap-2 items-center">
                           <span className="text-sm text-gray-600">Active Filters:</span>
                           {Object.entries(filters).map(([key, value]) => 
                             value !== 'all' && (
                               <span key={key} className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                                {key.charAt(0).toUpperCase() + key.slice(1)}: {value}
+                                {key.charAt(0).toUpperCase() + key.slice(1).replace(/([A-Z])/g, ' $1')}: {value}
                                 <button
                                   type="button"
                                   onClick={() => handleFilterChange(key, 'all')}
@@ -1012,7 +1050,8 @@ const Reports = () => {
                 <CardTitle className="flex items-center justify-between">
                   <span>Visitor Log ({totalCount} total)</span>
                   <span className="text-sm font-normal text-gray-500">
-                    Page {currentPage} of {totalPages}
+                    Showing {((currentPage - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(currentPage * ITEMS_PER_PAGE, totalCount)} of {totalCount} visitors
+                    {totalPages > 1 && ` (Page ${currentPage} of ${totalPages})`}
                   </span>
                 </CardTitle>
               </CardHeader>
@@ -1275,8 +1314,6 @@ const Reports = () => {
                 </Card>
               )}
 
-
-
               {/* Search */}
               <Card>
                 <CardContent className="p-6">
@@ -1284,10 +1321,15 @@ const Reports = () => {
                     <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                     <Input
                       placeholder="Search by name, email, phone, company, city, state, or country..."
-                      value={centerDbSearchTerm}
-                      onChange={(e) => setCenterDbSearchTerm(e.target.value)}
+                      value={centerDbSearch.searchTerm}
+                      onChange={(e) => centerDbSearch.updateSearchTerm(e.target.value)}
                       className="pl-10"
                     />
+                    {centerDbSearch.isSearching && (
+                      <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>

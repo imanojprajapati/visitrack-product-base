@@ -116,11 +116,13 @@ export default function AdminDashboard() {
       setEvents(eventsData);
 
       // Fetch visitors
-      const visitorsResponse = await fetch('/api/visitors?limit=1000', {
+      const visitorsResponse = await fetch('/api/visitors?all=true', {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
       const visitorsData = visitorsResponse.ok ? await visitorsResponse.json() : { visitors: [] };
       let visitors = visitorsData.visitors || [];
+
+      console.log(`📊 [Dashboard] Fetched ${visitors.length} visitors for analytics (unlimited)`);
 
       // Filter visitors by selected event if not 'all'
       if (selectedEventId !== 'all') {

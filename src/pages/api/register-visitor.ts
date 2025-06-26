@@ -80,10 +80,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const newVisitor = {
       // Core visitor information
       fullName: visitorName,
-      name: visitorName, // Keep both for compatibility
+      // name: visitorName, // Keep both for compatibility
       email: email,
       phoneNumber: visitorPhone || '',
-      phone: visitorPhone || '', // Keep both for compatibility
+      // phone: visitorPhone || '', // Keep both for compatibility
       
       // Event information - store as string for consistency
       eventId: eventId || null,
@@ -103,7 +103,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Registration metadata
       status: status || 'Registration',
       entryType: '-',
-      registrationDate: new Date(),
+      // registrationDate: new Date(),
       visitorRegistrationDate: visitorRegistrationDate || new Date().toISOString().split('T')[0],
       
       // System fields

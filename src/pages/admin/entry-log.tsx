@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
 import AdminLayout from '@/components/AdminLayout';
@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
+import { useDebounceSearch } from '@/hooks/use-debounced-search';
 
 import { 
   ClipboardList,
@@ -23,7 +24,11 @@ import {
   RefreshCw,
   Plus,
   Check,
-  X
+  X,
+  ChevronLeft,
+  ChevronRight,
+  Users,
+  Edit
 } from 'lucide-react';
 
 interface Visitor {
@@ -57,21 +62,51 @@ const EntryLog = () => {
   
   const [visitors, setVisitors] = useState<Visitor[]>([]);
   const [filteredVisitors, setFilteredVisitors] = useState<Visitor[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [entryTypeFilter, setEntryTypeFilter] = useState<'all' | 'manual' | 'qr'>('all');
-  const [statusFilter, setStatusFilter] = useState<'all' | 'Registration' | 'Visited'>('all');
+  const [loading, setLoading] = useState(true);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalCount, setTotalCount] = useState(0);
+  const itemsPerPage = 50;
   
-  // Manual entry form
+  // Filter states
+  const [entryTypeFilter, setEntryTypeFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  
+  // Manual entry states
   const [showManualEntryForm, setShowManualEntryForm] = useState(false);
   const [manualEntryId, setManualEntryId] = useState('');
   const [updatingEntry, setUpdatingEntry] = useState(false);
 
-  // Pagination
-  const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const [totalCount, setTotalCount] = useState(0);
-  const itemsPerPage = 20;
+  // Debounced search
+  const searchHook = useDebounceSearch({
+    delay: 1500,
+    onSearch: useCallback((searchTerm: string) => {
+      // Client-side filtering since we fetch all data
+      filterVisitors(searchTerm, entryTypeFilter, statusFilter);
+    }, [entryTypeFilter, statusFilter])
+  });
+
+  // Client-side filtering function
+  const filterVisitors = useCallback((searchTerm: string, entryType: string, status: string) => {
+    let filtered = visitors.filter(visitor => {
+      const matchesSearch = !searchTerm || 
+        visitor.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        visitor.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        visitor.phoneNumber.includes(searchTerm) ||
+        visitor.eventName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (visitor.company && visitor.company.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+      const matchesEntryType = entryType === 'all' || 
+                              (entryType === 'manual' && visitor.entryType.toLowerCase() === 'manual') ||
+                              (entryType === 'qr' && visitor.entryType.toLowerCase() === 'qr');
+      
+      const matchesStatus = status === 'all' || visitor.status === status;
+      
+      return matchesSearch && matchesEntryType && matchesStatus;
+    });
+    
+    setFilteredVisitors(filtered);
+  }, [visitors]);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -81,33 +116,17 @@ const EntryLog = () => {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  // Fetch entry log data
+  // Initial data fetch
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       fetchEntryLog();
     }
   }, [isAuthenticated, user?.id, currentPage]);
 
-  // Filter visitors based on search and filters
+  // Filter visitors when data changes or filters change
   useEffect(() => {
-    let filtered = visitors.filter(visitor => {
-      const matchesSearch = visitor.fullName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           visitor.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           visitor.phoneNumber.includes(searchTerm) ||
-                           visitor.eventName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                           (visitor.company && visitor.company.toLowerCase().includes(searchTerm.toLowerCase()));
-      
-      const matchesEntryType = entryTypeFilter === 'all' || 
-                              (entryTypeFilter === 'manual' && visitor.entryType.toLowerCase() === 'manual') ||
-                              (entryTypeFilter === 'qr' && visitor.entryType.toLowerCase() === 'qr');
-      
-      const matchesStatus = statusFilter === 'all' || visitor.status === statusFilter;
-      
-      return matchesSearch && matchesEntryType && matchesStatus;
-    });
-    
-    setFilteredVisitors(filtered);
-  }, [visitors, searchTerm, entryTypeFilter, statusFilter]);
+    filterVisitors(searchHook.debouncedSearchTerm, entryTypeFilter, statusFilter);
+  }, [visitors, searchHook.debouncedSearchTerm, entryTypeFilter, statusFilter, filterVisitors]);
 
   const fetchEntryLog = async () => {
     const authToken = localStorage.getItem('authToken');
@@ -327,10 +346,15 @@ const EntryLog = () => {
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                 <Input
                   placeholder="Search by name, email, phone, event, or company..."
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  value={searchHook.searchTerm}
+                  onChange={(e) => searchHook.updateSearchTerm(e.target.value)}
                   className="pl-10 w-full"
                 />
+                {searchHook.isSearching && (
+                  <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                  </div>
+                )}
               </div>
               
               {/* Filters */}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
 import AdminLayout from '@/components/AdminLayout';
@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from '@/hooks/use-toast';
+import { useDebounceSearch } from '@/hooks/use-debounced-search';
 
 import { 
   MessageSquare,
@@ -92,9 +93,21 @@ const Messages = () => {
     message: ''
   });
 
-  // Search and Filter States
-  const [visitorSearch, setVisitorSearch] = useState('');
-  const [templateSearch, setTemplateSearch] = useState('');
+  // Debounced search for visitors
+  const visitorSearch = useDebounceSearch({
+    delay: 1500,
+    onSearch: useCallback((searchTerm: string) => {
+      // Client-side filtering for visitors
+    }, [])
+  });
+
+  // Debounced search for templates
+  const templateSearch = useDebounceSearch({
+    delay: 1500,
+    onSearch: useCallback((searchTerm: string) => {
+      // Client-side filtering for templates
+    }, [])
+  });
 
   // Template Variables Helper State
   const [showVariablesHelper, setShowVariablesHelper] = useState(false);
@@ -224,7 +237,8 @@ const Messages = () => {
 
     try {
       setLoading(true);
-      const response = await fetch(`/api/visitors?eventId=${selectedEvent}&limit=1000`, {
+      // Fetch ALL visitors for the selected event (no limit for recipient selection)
+      const response = await fetch(`/api/visitors?eventId=${selectedEvent}&all=true`, {
         headers: {
           'Authorization': `Bearer ${authToken}`,
         },
@@ -233,6 +247,7 @@ const Messages = () => {
       if (response.ok) {
         const data = await response.json();
         setVisitors(data.visitors);
+        console.log(`📊 [Messages] Fetched ${data.visitors.length} visitors for event ${selectedEvent} (unlimited)`);
       }
     } catch (error) {
       console.error('Error fetching visitors:', error);
@@ -443,17 +458,21 @@ const Messages = () => {
     });
   };
 
-  // Filter visitors based on search
+  // Filtered data based on search
   const filteredVisitors = visitors.filter(visitor =>
-    visitor.fullName.toLowerCase().includes(visitorSearch.toLowerCase()) ||
-    visitor.email.toLowerCase().includes(visitorSearch.toLowerCase()) ||
-    (visitor.company && visitor.company.toLowerCase().includes(visitorSearch.toLowerCase()))
+    !visitorSearch.searchTerm ||
+    visitor.fullName.toLowerCase().includes(visitorSearch.searchTerm.toLowerCase()) ||
+    visitor.email.toLowerCase().includes(visitorSearch.searchTerm.toLowerCase()) ||
+    visitor.phoneNumber.includes(visitorSearch.searchTerm) ||
+    (visitor.company && visitor.company.toLowerCase().includes(visitorSearch.searchTerm.toLowerCase()))
   );
 
-  // Filter templates based on search
+  // Filtered data based on search
   const filteredTemplates = templates.filter(template =>
-    template.templateName.toLowerCase().includes(templateSearch.toLowerCase()) ||
-    template.subject.toLowerCase().includes(templateSearch.toLowerCase())
+    !templateSearch.searchTerm ||
+    template.templateName.toLowerCase().includes(templateSearch.searchTerm.toLowerCase()) ||
+    template.subject.toLowerCase().includes(templateSearch.searchTerm.toLowerCase()) ||
+    template.message.toLowerCase().includes(templateSearch.searchTerm.toLowerCase())
   );
 
   // Show loading while checking authentication
@@ -553,10 +572,15 @@ const Messages = () => {
                           <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                           <Input
                             placeholder="Search visitors..."
-                            value={visitorSearch}
-                            onChange={(e) => setVisitorSearch(e.target.value)}
+                            value={visitorSearch.searchTerm}
+                            onChange={(e) => visitorSearch.updateSearchTerm(e.target.value)}
                             className="pl-10 w-full sm:w-64"
                           />
+                          {visitorSearch.isSearching && (
+                            <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                            </div>
+                          )}
                         </div>
                         <Button
                           variant="outline"
@@ -800,10 +824,15 @@ const Messages = () => {
                       <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 w-4 h-4" />
                       <Input
                         placeholder="Search templates..."
-                        value={templateSearch}
-                        onChange={(e) => setTemplateSearch(e.target.value)}
+                        value={templateSearch.searchTerm}
+                        onChange={(e) => templateSearch.updateSearchTerm(e.target.value)}
                         className="pl-10 w-full"
                       />
+                      {templateSearch.isSearching && (
+                        <div className="absolute right-3 top-1/2 transform -translate-y-1/2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                        </div>
+                      )}
                     </div>
                     <Button
                       onClick={() => {

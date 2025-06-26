@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useAuth } from '@/context/AuthContext';
@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from '@/hooks/use-toast';
+import { useDebounceSearch } from '@/hooks/use-debounced-search';
 import AdminLayout from '@/components/AdminLayout';
 import { Visitor } from '@/types/visitor';
 import { Event } from '@/types/event';
@@ -25,6 +26,9 @@ interface PaginationInfo {
   limit: number;
 }
 
+// Pagination settings
+const ITEMS_PER_PAGE = 50;
+
 const VisitorManagement = () => {
   const { user, isAuthenticated, isLoading } = useAuth();
   const router = useRouter();
@@ -35,7 +39,24 @@ const VisitorManagement = () => {
     current: 1,
     total: 1,
     count: 0,
-    limit: 10
+    limit: ITEMS_PER_PAGE
+  });
+
+  // Filter states (excluding search which is now debounced)
+  const [filters, setFilters] = useState({
+    eventId: 'all',
+    status: 'all'
+  });
+
+  // Debounced search
+  const searchHook = useDebounceSearch({
+    delay: 1500,
+    onSearch: useCallback((searchTerm: string) => {
+      if (isAuthenticated && user?.id) {
+        setPagination(prev => ({ ...prev, current: 1 }));
+        fetchVisitors(1, searchTerm);
+      }
+    }, [isAuthenticated, user?.id, filters])
   });
 
   // Modal states
@@ -45,15 +66,6 @@ const VisitorManagement = () => {
   const [qrCodeUrl, setQrCodeUrl] = useState<string>('');
   const [generatingQR, setGeneratingQR] = useState(false);
 
-  // Filter and search state
-  const [filters, setFilters] = useState({
-    search: '',
-    eventId: 'all',
-    status: 'Registration',
-    page: 1,
-    limit: 10
-  });
-
   // Redirect to login if not authenticated
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -62,12 +74,13 @@ const VisitorManagement = () => {
     }
   }, [isAuthenticated, isLoading, router]);
 
+  // Initial data fetch
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       fetchEvents();
-      fetchVisitors();
+      fetchVisitors(1, searchHook.debouncedSearchTerm);
     }
-  }, [user?.id, isAuthenticated, filters]);
+  }, [isAuthenticated, user?.id]);
 
   // Fetch events for the filter dropdown
   const fetchEvents = async () => {
@@ -93,58 +106,57 @@ const VisitorManagement = () => {
   };
 
   // Fetch visitors
-  const fetchVisitors = async () => {
+  const fetchVisitors = async (page: number = 1, searchTerm: string = '') => {
     if (!user?.id) return;
 
     const authToken = localStorage.getItem('authToken');
     if (!authToken) {
-      toast({
-        title: "Authentication Error",
-        description: "Please log in again.",
-        variant: "destructive"
-      });
+      router.push('/login');
       return;
     }
 
     try {
       setLoading(true);
 
-      // Build query parameters
-      const queryParams = new URLSearchParams({
-        page: filters.page.toString(),
-        limit: filters.limit.toString(),
+      const params = new URLSearchParams({
+        page: page.toString(),
+        limit: pagination.limit.toString()
       });
 
-      if (filters.search.trim()) {
-        queryParams.append('search', filters.search.trim());
+      if (searchTerm && searchTerm.trim()) {
+        params.append('search', searchTerm.trim());
+      }
+      
+      if (filters.eventId && filters.eventId !== 'all') {
+        params.append('eventId', filters.eventId);
+      }
+      
+      if (filters.status && filters.status !== 'all') {
+        params.append('status', filters.status);
       }
 
-      if (filters.eventId !== 'all') {
-        queryParams.append('eventId', filters.eventId);
-      }
-
-      if (filters.status !== 'all') {
-        queryParams.append('status', filters.status);
-      }
-
-      const response = await fetch(`/api/visitors?${queryParams.toString()}`, {
+      const response = await fetch(`/api/visitors?${params}`, {
         headers: {
           'Authorization': `Bearer ${authToken}`,
+          'Content-Type': 'application/json',
         },
       });
 
+      if (response.status === 401) {
+        localStorage.removeItem('authToken');
+        router.push('/login');
+        return;
+      }
+
       if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Authentication failed. Please log in again.');
-        }
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to fetch visitors');
+        throw new Error('Failed to fetch visitors');
       }
 
       const data = await response.json();
       setVisitors(data.visitors);
       setPagination(data.pagination);
-      console.log(`Fetched ${data.visitors.length} visitors`);
+      
+      console.log(`📊 [Visitors] Fetched ${data.visitors.length} visitors (page ${data.pagination.current}/${data.pagination.total})`);
     } catch (error: any) {
       console.error('Error fetching visitors:', error);
       toast({
@@ -157,20 +169,21 @@ const VisitorManagement = () => {
     }
   };
 
-  // Handle search
-  const handleSearch = (searchTerm: string) => {
-    setFilters(prev => ({ ...prev, search: searchTerm, page: 1 }));
-  };
-
   // Handle filter changes
   const handleFilterChange = (key: string, value: string) => {
-    setFilters(prev => ({ ...prev, [key]: value, page: 1 }));
+    setFilters(prev => ({ ...prev, [key]: value }));
+    setPagination(prev => ({ ...prev, current: 1 }));
+    // Immediately fetch with new filter
+    fetchVisitors(1, searchHook.debouncedSearchTerm);
   };
 
-  // Handle pagination
-  const handlePageChange = (newPage: number) => {
-    setFilters(prev => ({ ...prev, page: newPage }));
-  };
+  // Watch for filter changes and refetch data
+  useEffect(() => {
+    if (isAuthenticated && user?.id) {
+      setPagination(prev => ({ ...prev, current: 1 }));
+      fetchVisitors(1, searchHook.debouncedSearchTerm);
+    }
+  }, [filters.eventId, filters.status]);
 
   // Handle view visitor details
   const handleViewVisitor = (visitor: Visitor) => {
@@ -250,6 +263,14 @@ const VisitorManagement = () => {
     }
   };
 
+  // Handle pagination
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= pagination.total) {
+      setPagination(prev => ({ ...prev, current: newPage }));
+      fetchVisitors(newPage, searchHook.debouncedSearchTerm);
+    }
+  };
+
   if (isLoading) {
     return (
       <AdminLayout>
@@ -311,7 +332,7 @@ const VisitorManagement = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Visitors</CardTitle>
+                <CardTitle className="text-sm font-medium">Total Registered</CardTitle>
                 <Users className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
@@ -333,7 +354,7 @@ const VisitorManagement = () => {
 
             <Card>
               <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Visited</CardTitle>
+                <CardTitle className="text-sm font-medium">Total Visited</CardTitle>
                 <Eye className="h-4 w-4 text-green-500" />
               </CardHeader>
               <CardContent>
@@ -372,10 +393,15 @@ const VisitorManagement = () => {
                     <Input
                       id="search"
                       placeholder="Search by name, email, phone..."
-                      value={filters.search}
-                      onChange={(e) => handleSearch(e.target.value)}
+                      value={searchHook.searchTerm}
+                      onChange={(e) => searchHook.updateSearchTerm(e.target.value)}
                       className="pl-10"
                     />
+                    {searchHook.isSearching && (
+                      <div className="absolute right-3 top-3 h-4 w-4">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -410,20 +436,7 @@ const VisitorManagement = () => {
                   </Select>
                 </div>
 
-                <div>
-                  <Label htmlFor="limitFilter">Items per page</Label>
-                  <Select value={filters.limit.toString()} onValueChange={(value) => handleFilterChange('limit', value)}>
-                    <SelectTrigger id="limitFilter">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="10">10 per page</SelectItem>
-                      <SelectItem value="25">25 per page</SelectItem>
-                      <SelectItem value="50">50 per page</SelectItem>
-                      <SelectItem value="100">100 per page</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+
               </div>
             </CardContent>
           </Card>
@@ -436,7 +449,7 @@ const VisitorManagement = () => {
                   <Users className="mx-auto h-12 w-12 text-gray-400" />
                   <h3 className="mt-2 text-sm font-medium text-gray-900">No visitors found</h3>
                   <p className="mt-1 text-sm text-gray-500">
-                    {filters.search || filters.eventId !== 'all' || filters.status !== 'all'
+                    {searchHook.searchTerm || filters.eventId !== 'all' || filters.status !== 'all'
                       ? "Try adjusting your search or filter criteria."
                       : "Visitors will appear here when they register for your events."
                     }
@@ -449,7 +462,8 @@ const VisitorManagement = () => {
               <CardHeader>
                 <CardTitle>Visitors ({pagination.count})</CardTitle>
                 <CardDescription>
-                  Showing {((pagination.current - 1) * pagination.limit) + 1} to {Math.min(pagination.current * pagination.limit, pagination.count)} of {pagination.count} visitors
+                  Showing {((pagination.current - 1) * ITEMS_PER_PAGE) + 1} to {Math.min(pagination.current * ITEMS_PER_PAGE, pagination.count)} of {pagination.count} visitors
+                  {pagination.total > 1 && ` (Page ${pagination.current} of ${pagination.total})`}
                 </CardDescription>
               </CardHeader>
               <CardContent>
