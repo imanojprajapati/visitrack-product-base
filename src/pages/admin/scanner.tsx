@@ -49,11 +49,14 @@ const QuickScanner = () => {
   const [scanResults, setScanResults] = useState<ScanResult[]>([]);
   const [processing, setProcessing] = useState(false);
   const [scanCount, setScanCount] = useState(0);
+  const [cooldownActive, setCooldownActive] = useState(false);
   
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
+  const lastScannedRef = useRef<string>('');
+  const cooldownRef = useRef<NodeJS.Timeout | null>(null);
 
   // Redirect to login if not authenticated
   useEffect(() => {
@@ -116,6 +119,12 @@ const QuickScanner = () => {
       intervalRef.current = null;
     }
 
+    // Clear cooldown timer
+    if (cooldownRef.current) {
+      clearTimeout(cooldownRef.current);
+      cooldownRef.current = null;
+    }
+
     // Stop video stream
     if (streamRef.current) {
       streamRef.current.getTracks().forEach(track => track.stop());
@@ -127,6 +136,9 @@ const QuickScanner = () => {
       videoRef.current.srcObject = null;
     }
 
+    // Reset scan tracking
+    lastScannedRef.current = '';
+    setCooldownActive(false);
     setIsScanning(false);
   };
 
@@ -141,7 +153,8 @@ const QuickScanner = () => {
   };
 
   const scanForQR = async () => {
-    if (!videoRef.current || !canvasRef.current || processing) return;
+    // Don't scan if processing, in cooldown, or camera not ready
+    if (!videoRef.current || !canvasRef.current || processing || cooldownActive) return;
 
     const video = videoRef.current;
     const canvas = canvasRef.current;
@@ -167,7 +180,11 @@ const QuickScanner = () => {
       const code = jsQR(imageData.data, imageData.width, imageData.height);
       
       if (code && code.data) {
-        await processQRCode(code.data);
+        // Check if this is the same QR code as last scan or if we're still processing
+        if (code.data !== lastScannedRef.current && !processing) {
+          lastScannedRef.current = code.data;
+          await processQRCode(code.data);
+        }
       }
     } catch (error) {
       console.error('QR scan error:', error);
@@ -276,10 +293,12 @@ const QuickScanner = () => {
     } finally {
       setProcessing(false);
       
-      // Brief pause before next scan
-      setTimeout(() => {
-        // Ready for next scan
-      }, 1000);
+      // Set cooldown period before allowing next scan of different QR code
+      setCooldownActive(true);
+      cooldownRef.current = setTimeout(() => {
+        lastScannedRef.current = '';
+        setCooldownActive(false);
+      }, 3000); // 3 second cooldown
     }
   };
 
@@ -349,14 +368,39 @@ const QuickScanner = () => {
                     <>
                       {/* Scanning Overlay */}
                       <div className="absolute inset-0 flex items-center justify-center">
-                        <div className="border-2 border-green-400 rounded-lg w-48 h-48 relative">
-                          <div className="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-green-400"></div>
-                          <div className="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-green-400"></div>
-                          <div className="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-green-400"></div>
-                          <div className="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-green-400"></div>
+                        <div className={`border-2 rounded-lg w-48 h-48 relative ${
+                          processing ? 'border-blue-400' : 
+                          cooldownActive ? 'border-orange-400' : 
+                          'border-green-400'
+                        }`}>
+                          <div className={`absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 ${
+                            processing ? 'border-blue-400' : 
+                            cooldownActive ? 'border-orange-400' : 
+                            'border-green-400'
+                          }`}></div>
+                          <div className={`absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 ${
+                            processing ? 'border-blue-400' : 
+                            cooldownActive ? 'border-orange-400' : 
+                            'border-green-400'
+                          }`}></div>
+                          <div className={`absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 ${
+                            processing ? 'border-blue-400' : 
+                            cooldownActive ? 'border-orange-400' : 
+                            'border-green-400'
+                          }`}></div>
+                          <div className={`absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 ${
+                            processing ? 'border-blue-400' : 
+                            cooldownActive ? 'border-orange-400' : 
+                            'border-green-400'
+                          }`}></div>
                           {processing && (
-                            <div className="absolute inset-0 bg-green-400 bg-opacity-20 flex items-center justify-center">
-                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600"></div>
+                            <div className="absolute inset-0 bg-blue-400 bg-opacity-20 flex items-center justify-center">
+                              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                            </div>
+                          )}
+                          {cooldownActive && !processing && (
+                            <div className="absolute inset-0 bg-orange-400 bg-opacity-20 flex items-center justify-center">
+                              <div className="text-white font-semibold text-sm">Cooldown</div>
                             </div>
                           )}
                         </div>
@@ -364,10 +408,22 @@ const QuickScanner = () => {
                       
                       {/* Status Indicator */}
                       <div className="absolute top-4 left-4">
-                        <Badge className="bg-green-500 text-white flex items-center gap-1">
-                          <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                          Scanning...
-                        </Badge>
+                        {cooldownActive ? (
+                          <Badge className="bg-orange-500 text-white flex items-center gap-1">
+                            <div className="w-2 h-2 bg-white rounded-full"></div>
+                            Cooldown (3s)
+                          </Badge>
+                        ) : processing ? (
+                          <Badge className="bg-blue-500 text-white flex items-center gap-1">
+                            <div className="w-2 h-2 bg-white rounded-full animate-spin"></div>
+                            Processing...
+                          </Badge>
+                        ) : (
+                          <Badge className="bg-green-500 text-white flex items-center gap-1">
+                            <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
+                            Scanning...
+                          </Badge>
+                        )}
                       </div>
                     </>
                   )}
@@ -425,8 +481,8 @@ const QuickScanner = () => {
                   <ul className="text-sm text-blue-800 space-y-1">
                     <li>• Click "Start Scanning" to activate camera</li>
                     <li>• Point camera at QR code</li>
-                    <li>• Scanner will automatically detect and process codes</li>
-                    <li>• Scanner stays active for continuous scanning</li>
+                    <li>• Wait for processing to complete before next scan</li>
+                    <li>• 3-second cooldown prevents duplicate scans</li>
                     <li>• Results appear in real-time on the right</li>
                   </ul>
                 </div>
