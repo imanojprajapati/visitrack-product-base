@@ -335,7 +335,14 @@ const RegistrationPage = () => {
     if (eventForm) {
       const requiredFields = eventForm.fields.filter(field => field.required);
       for (const field of requiredFields) {
-        if (!formData[field.id] && field.id !== 'source') {
+        // Skip validation for source field (auto-filled) and email field (already verified)
+        if (field.id === 'source' || field.id === 'email') {
+          continue;
+        }
+        
+        // Check if the field value exists and is not empty
+        const fieldValue = formData[field.id];
+        if (!fieldValue || (typeof fieldValue === 'string' && !fieldValue.trim())) {
           toast({
             title: "Error",
             description: `${field.label} is required`,
@@ -346,10 +353,21 @@ const RegistrationPage = () => {
       }
     }
 
+    // Ensure email is included in form data (it should be set during OTP verification)
+    if (!formData.email) {
+      setFormData(prev => ({
+        ...prev,
+        email: email
+      }));
+    }
+
     setIsLoading(true);
     try {
       const currentDate = new Date();
       const formattedDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
+
+      // Use email from state if not in formData
+      const finalEmail = formData.email || email;
 
       const registrationData = {
         eventId,
@@ -358,7 +376,6 @@ const RegistrationPage = () => {
         eventStartDate: event?.eventStartDate,
         eventEndDate: event?.eventEndDate,
         fullName: formData.fullName,
-        email: formData.email,
         phoneNumber: formData.phoneNumber,
         company: formData.company || '',
         city: formData.city || '',
@@ -367,9 +384,14 @@ const RegistrationPage = () => {
         pincode: formData.pincode || '',
         source: 'Website', // Default value as requested
         ...formData, // Include any additional form fields
+        email: finalEmail, // Ensure email is set correctly (override any duplicates)
         visitorRegistrationDate: formattedDate, // Use YYYY-MM-DD format
         status: 'Registration'
       };
+
+      console.log('📝 Registration data being submitted:', registrationData);
+      console.log('📝 Current formData state:', formData);
+      console.log('📝 Email from state:', email);
 
       const response = await fetch('/api/register-visitor', {
         method: 'POST',

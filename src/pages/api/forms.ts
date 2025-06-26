@@ -1,9 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
-
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
+import { connectToDatabase, dbName } from '../../lib/mongodb';
 
 // Interface for JWT payload
 interface JWTPayload {
@@ -15,19 +13,6 @@ interface JWTPayload {
   fullName: string;
   iat?: number;
   exp?: number;
-}
-
-let cachedClient: MongoClient | null = null;
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  const client = new MongoClient(uri);
-  await client.connect();
-  cachedClient = client;
-  return client;
 }
 
 // Helper function to extract and validate JWT payload
@@ -58,8 +43,7 @@ function extractUserFromToken(authHeader: string | undefined): JWTPayload {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
-      const client = await connectToDatabase();
-      const db = client.db(dbName);
+      const { db } = await connectToDatabase();
       
       const userInfo = extractUserFromToken(req.headers.authorization);
       
@@ -90,8 +74,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'POST') {
     try {
-      const client = await connectToDatabase();
-      const db = client.db(dbName);
+      const { db } = await connectToDatabase();
 
       const userInfo = extractUserFromToken(req.headers.authorization);
 

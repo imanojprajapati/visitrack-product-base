@@ -1,42 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, MongoClientOptions } from 'mongodb';
 import jwt from 'jsonwebtoken';
-
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
-
-let cachedClient: MongoClient | null = null;
-
-const options: MongoClientOptions = {
-  tls: true,
-  tlsAllowInvalidCertificates: true,
-  tlsAllowInvalidHostnames: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
-  maxPoolSize: 5,
-  retryWrites: true,
-  retryReads: true,
-  family: 4
-};
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    try {
-      await cachedClient.db(dbName).admin().ping();
-      return cachedClient;
-    } catch (error) {
-      cachedClient = null;
-    }
-  }
-
-  const client = new MongoClient(uri, options);
-  await client.connect();
-  await client.db(dbName).admin().ping();
-  cachedClient = client;
-  console.log('✅ MongoDB connected successfully (entry-log)');
-  return client;
-}
+import { connectToDatabase, dbName } from '@/lib/mongodb';
 
 function extractUserFromToken(authHeader?: string) {
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
@@ -62,8 +26,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const client = await connectToDatabase();
-    const db = client.db(dbName);
+    const { db } = await connectToDatabase();
     
     const userInfo = extractUserFromToken(req.headers.authorization);
     

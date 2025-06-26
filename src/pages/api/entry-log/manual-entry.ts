@@ -1,60 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, MongoClientOptions, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
+import { connectToDatabase } from '../../../lib/mongodb';
 
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
-
-let cachedClient: MongoClient | null = null;
-
-const options: MongoClientOptions = {
-  tls: true,
-  tlsAllowInvalidCertificates: true,
-  tlsAllowInvalidHostnames: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
-  maxPoolSize: 5,
-  retryWrites: true,
-  retryReads: true,
-  family: 4
-};
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    try {
-      await cachedClient.db(dbName).admin().ping();
-      return cachedClient;
-    } catch (error) {
-      cachedClient = null;
-    }
-  }
-
-  const client = new MongoClient(uri, options);
-  await client.connect();
-  await client.db(dbName).admin().ping();
-  cachedClient = client;
-  console.log('✅ MongoDB connected successfully (manual-entry)');
-  return client;
-}
-
-function extractUserFromToken(authHeader?: string) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Authentication required');
-  }
-
-  const token = authHeader.substring(7);
-  try {
-    const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    return {
-      userId: decoded.userId,
-      ownerId: decoded.ownerId,
-      username: decoded.username
-    };
-  } catch (error) {
-    throw new Error('Invalid token');
-  }
-}
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -62,20 +11,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const client = await connectToDatabase();
-    const db = client.db(dbName);
-    
-    const userInfo = extractUserFromToken(req.headers.authorization);
+    // Verify JWT token
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
+
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (!decoded) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
+
     const { visitorId } = req.body;
 
-    console.log('🔄 [Manual Entry API] Request:', {
-      method: req.method,
-      userId: userInfo.userId,
-      ownerId: userInfo.ownerId,
-      visitorId
-    });
-
-    // Validate input
     if (!visitorId) {
       return res.status(400).json({ message: 'Visitor ID is required' });
     }
@@ -85,72 +33,80 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ message: 'Invalid visitor ID format' });
     }
 
-    // Find the visitor and verify ownership
-    const visitor = await db.collection('visitors').findOne({
-      _id: new ObjectId(visitorId),
-      ownerId: userInfo.ownerId
+    console.log('🔍 [Manual Entry] Looking for visitor:', {
+      visitorId,
+      ownerId: decoded.ownerId || decoded.userId,
+      userId: decoded.userId,
+      username: decoded.username
     });
 
+    const { db } = await connectToDatabase();
+
+    // Find the visitor using ownerId (global variable) for proper filtering
+    const visitor = await db.collection('visitors').findOne({
+      _id: new ObjectId(visitorId),
+      ownerId: decoded.ownerId || decoded.userId
+    });
+
+    console.log('👤 [Manual Entry] Visitor found:', visitor ? {
+      id: visitor._id,
+      name: visitor.fullName || visitor.name,
+      email: visitor.email,
+      ownerId: visitor.ownerId,
+      status: visitor.status
+    } : 'NOT FOUND');
+
     if (!visitor) {
-      return res.status(404).json({ message: 'Visitor not found or access denied' });
+      return res.status(404).json({ message: 'Visitor not found' });
     }
 
-    // Update the visitor's entry type to Manual
+    // Update visitor entry type to Manual and status to Visited
     const updateResult = await db.collection('visitors').updateOne(
-      {
-        _id: new ObjectId(visitorId),
-        ownerId: userInfo.ownerId
-      },
-      {
-        $set: {
+      { _id: new ObjectId(visitorId) },
+      { 
+        $set: { 
           entryType: 'Manual',
-          status: 'Visited', // Also update status to Visited when manually checked in
+          status: 'Visited',
+          lastScannedAt: new Date(),
+          scannedBy: decoded.userId,
           updatedAt: new Date()
         }
       }
     );
 
-    if (updateResult.modifiedCount === 0) {
-      return res.status(400).json({ message: 'Failed to update visitor entry type' });
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).json({ message: 'Visitor not found' });
     }
 
-    console.log(`✅ [Manual Entry API] Updated visitor ${visitorId} to Manual entry type`);
-
-    // Log the manual entry action
+    // Log the manual entry
     await db.collection('entryLogs').insertOne({
       visitorId: new ObjectId(visitorId),
-      visitorName: visitor.fullName,
+      visitorName: visitor.name || visitor.fullName,
       visitorEmail: visitor.email,
-      eventId: visitor.eventId,
-      eventName: visitor.eventName,
-      ownerId: userInfo.ownerId,
+      visitorPhone: visitor.phone || visitor.phoneNumber,
       entryType: 'Manual',
-      entryBy: userInfo.userId,
-      entryByUsername: userInfo.username,
-      previousEntryType: visitor.entryType,
-      previousStatus: visitor.status,
-      newStatus: 'Visited',
-      entryDate: new Date(),
+      entryTime: new Date(),
+      ownerId: decoded.ownerId || decoded.userId,
       createdAt: new Date()
     });
 
-    return res.status(200).json({
-      message: 'Entry type updated successfully',
-      visitorId: visitorId,
-      visitorName: visitor.fullName,
-      previousEntryType: visitor.entryType,
-      newEntryType: 'Manual',
-      previousStatus: visitor.status,
-      newStatus: 'Visited'
+    console.log('✅ [Manual Entry] Successfully updated visitor to Manual entry');
+
+    res.status(200).json({
+      message: 'Manual entry recorded successfully',
+      visitorName: visitor.name || visitor.fullName,
+      visitor: {
+        id: visitor._id,
+        name: visitor.name || visitor.fullName,
+        email: visitor.email,
+        phone: visitor.phone || visitor.phoneNumber,
+        entryType: 'Manual',
+        status: 'Visited'
+      }
     });
 
-  } catch (error: any) {
-    console.error('❌ [Manual Entry API] Error:', error);
-    
-    if (error.message === 'Authentication required' || error.message === 'Invalid token') {
-      return res.status(401).json({ message: error.message });
-    }
-    
-    return res.status(500).json({ message: 'Internal server error' });
+  } catch (error) {
+    console.error('Manual entry error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 } 

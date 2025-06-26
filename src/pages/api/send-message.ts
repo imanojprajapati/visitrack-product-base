@@ -1,66 +1,14 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, MongoClientOptions, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
 import nodemailer from 'nodemailer';
+import { connectToDatabase } from '../../lib/mongodb';
 
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 // Gmail configuration
 const GMAIL_USER = process.env.GMAIL_USER || 'visitrackoffical@gmail.com';
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || 'ojadmobcwskreljt';
-
-let cachedClient: MongoClient | null = null;
-
-const options: MongoClientOptions = {
-  tls: true,
-  tlsAllowInvalidCertificates: true,
-  tlsAllowInvalidHostnames: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
-  maxPoolSize: 5,
-  retryWrites: true,
-  retryReads: true,
-  family: 4
-};
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    try {
-      await cachedClient.db(dbName).admin().ping();
-      return cachedClient;
-    } catch (error) {
-      cachedClient = null;
-    }
-  }
-
-  const client = new MongoClient(uri, options);
-  await client.connect();
-  await client.db(dbName).admin().ping();
-  cachedClient = client;
-  console.log('✅ MongoDB connected successfully (send-message)');
-  return client;
-}
-
-function extractUserFromToken(authHeader?: string) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Authentication required');
-  }
-
-  const token = authHeader.substring(7);
-  try {
-    const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    return {
-      userId: decoded.userId,
-      ownerId: decoded.ownerId,
-      username: decoded.username,
-      email: decoded.email
-    };
-  } catch (error) {
-    throw new Error('Invalid token');
-  }
-}
 
 // Create nodemailer transporter
 const createTransporter = () => {
@@ -73,103 +21,33 @@ const createTransporter = () => {
   });
 };
 
-// Template variable replacement function
-function replaceTemplateVariables(
-  text: string, 
-  visitor: any, 
-  event: any, 
-  sender: any
-): string {
-  if (!text) return text;
-  
-  const variables = {
-    // Visitor variables
-    '{visitorName}': visitor?.fullName || '[Visitor Name]',
-    '{visitorEmail}': visitor?.email || '[Visitor Email]',
-    '{visitorPhone}': visitor?.phoneNumber || '[Visitor Phone]',
-    '{visitorCompany}': visitor?.company || '[Visitor Company]',
-    '{visitorStatus}': visitor?.status || '[Visitor Status]',
-    
-    // Event variables
-    '{eventName}': event?.eventName || '[Event Name]',
-    '{eventLocation}': event?.eventLocation || '[Event Location]',
-    '{eventDate}': event?.eventStartDate ? new Date(event.eventStartDate).toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    }) : '[Event Date]',
-    '{eventStartDate}': event?.eventStartDate ? new Date(event.eventStartDate).toLocaleDateString() : '[Event Start Date]',
-    '{eventEndDate}': event?.eventEndDate ? new Date(event.eventEndDate).toLocaleDateString() : '[Event End Date]',
-    '{eventTime}': event?.eventStartDate ? new Date(event.eventStartDate).toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    }) : '[Event Time]',
-    
-    // Sender variables
-    '{senderName}': sender?.username || '[Sender Name]',
-    '{senderEmail}': sender?.email || '[Sender Email]',
-    
-    // System variables
-    '{currentDate}': new Date().toLocaleDateString('en-US', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric'
-    }),
-    '{currentTime}': new Date().toLocaleTimeString('en-US', {
-      hour: '2-digit',
-      minute: '2-digit'
-    }),
-    '{year}': new Date().getFullYear().toString()
-  };
-  
-  let replacedText = text;
-  
-  // Replace all variables in the text
-  Object.entries(variables).forEach(([placeholder, value]) => {
-    const regex = new RegExp(placeholder.replace(/[{}]/g, '\\$&'), 'gi');
-    replacedText = replacedText.replace(regex, value || '');
-  });
-  
-  return replacedText;
-}
-
-// Real email sending function using nodemailer
-async function sendEmail(to: string, subject: string, message: string, fromEmail: string, senderName?: string, eventName?: string, eventLocation?: string, eventDate?: string) {
+// Send email function
+async function sendEmail(to: string, subject: string, message: string, visitorName?: string, eventName?: string): Promise<boolean> {
   try {
     const transporter = createTransporter();
     
-    const eventInfo = eventName ? `
-      <div style="background: #e3f2fd; border-left: 4px solid #2196f3; padding: 15px; margin: 20px 0; border-radius: 4px;">
-        <h3 style="color: #1976d2; margin: 0 0 8px 0; font-size: 16px;">📅 Event Details</h3>
-        <p style="color: #424242; margin: 0; font-size: 14px;"><strong>Event:</strong> ${eventName}</p>
-        ${eventLocation ? `<p style="color: #424242; margin: 4px 0 0 0; font-size: 14px;"><strong>Location:</strong> ${eventLocation}</p>` : ''}
-        ${eventDate ? `<p style="color: #424242; margin: 4px 0 0 0; font-size: 14px;"><strong>Date:</strong> ${eventDate}</p>` : ''}
-      </div>
-    ` : '';
-    
     const mailOptions = {
-      from: `${senderName || 'Visitrack'} <${GMAIL_USER}>`,
+      from: GMAIL_USER,
       to: to,
       subject: subject,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
           <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); padding: 30px; text-align: center; border-radius: 10px 10px 0 0;">
             <h1 style="color: white; margin: 0; font-size: 28px;">Visitrack</h1>
-            <p style="color: white; margin: 10px 0 0 0; opacity: 0.9;">${eventName ? `Message from ${eventName}` : 'Event Message'}</p>
+            <p style="color: white; margin: 10px 0 0 0; opacity: 0.9;">Message from Event Organizer</p>
           </div>
           
           <div style="background: #f8f9fa; padding: 40px 30px; border-radius: 0 0 10px 10px; border: 1px solid #e9ecef;">
-            ${eventInfo}
+            ${visitorName ? `<h2 style="color: #333; margin-bottom: 20px;">Hello ${visitorName}!</h2>` : ''}
+            ${eventName ? `<p style="color: #666; margin-bottom: 20px; font-size: 16px;"><strong>Event:</strong> ${eventName}</p>` : ''}
             
             <div style="background: white; padding: 25px; border-radius: 8px; margin: 20px 0; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-              <div style="color: #333; line-height: 1.6; white-space: pre-wrap;">${message}</div>
+              <div style="white-space: pre-wrap; color: #333; line-height: 1.6;">${message}</div>
             </div>
             
             <div style="text-align: center; margin-top: 30px; padding-top: 20px; border-top: 1px solid #dee2e6;">
               <p style="color: #666; font-size: 14px; margin: 0;">
-                Sent via Visitrack Event Management System
+                This message was sent through Visitrack Event Management System.
               </p>
               <p style="color: #666; font-size: 12px; margin: 10px 0 0 0;">
                 © 2025 Visitrack. All rights reserved.
@@ -180,21 +58,11 @@ async function sendEmail(to: string, subject: string, message: string, fromEmail
       `,
     };
 
-    const result = await transporter.sendMail(mailOptions);
-    
-    console.log('📧 [Email Service] Email sent successfully:', {
-      to,
-      subject,
-      messageId: result.messageId
-    });
-    
-    return {
-      success: true,
-      messageId: result.messageId
-    };
+    await transporter.sendMail(mailOptions);
+    return true;
   } catch (error) {
-    console.error('📧 [Email Service] Failed to send email:', error);
-    throw error;
+    console.error('Error sending email:', error);
+    return false;
   }
 }
 
@@ -204,163 +72,178 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const client = await connectToDatabase();
-    const db = client.db(dbName);
-    
-    const userInfo = extractUserFromToken(req.headers.authorization);
-    const { eventId, visitorIds, subject, message } = req.body;
+    // Verify JWT token
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
 
-    console.log('📧 [Send Message API] Request:', {
-      eventId,
-      visitorCount: visitorIds?.length,
-      userId: userInfo.userId,
-      ownerId: userInfo.ownerId
-    });
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (!decoded) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
 
-    // Validate required fields
-    if (!eventId || !visitorIds || !Array.isArray(visitorIds) || visitorIds.length === 0) {
-      return res.status(400).json({ 
-        message: 'Event ID and visitor IDs are required' 
+    const { visitorIds, templateId, customMessage, subject, message, eventId } = req.body;
+
+    if (!visitorIds || !Array.isArray(visitorIds) || visitorIds.length === 0) {
+      return res.status(400).json({ message: 'Visitor IDs are required' });
+    }
+
+    const { db } = await connectToDatabase();
+
+    let messageContent = customMessage || message;
+    let messageSubject = subject;
+
+    // If templateId is provided, get the template
+    if (templateId && !customMessage && !message) {
+      const template = await db.collection('messageTemplates').findOne({
+        _id: new ObjectId(templateId),
+        ownerId: decoded.ownerId || decoded.userId
       });
+
+      if (!template) {
+        return res.status(404).json({ message: 'Template not found' });
+      }
+
+      messageContent = template.content || template.message;
+      messageSubject = template.subject;
     }
 
-    if (!subject || !message) {
-      return res.status(400).json({ 
-        message: 'Subject and message are required' 
-      });
+    if (!messageContent) {
+      return res.status(400).json({ message: 'Message content is required' });
     }
 
-    // Validate event exists and belongs to the user
-    const event = await db.collection('events').findOne({
-      _id: new ObjectId(eventId),
-      ownerId: userInfo.ownerId
-    });
-
-    if (!event) {
-      return res.status(404).json({ message: 'Event not found' });
-    }
-
-    // Get visitors for the specified event and owner
-    const visitors = await db.collection('visitors')
-      .find({
-        _id: { $in: visitorIds.map(id => new ObjectId(id)) },
-        eventId: eventId,
-        ownerId: userInfo.ownerId
-      })
-      .toArray();
+    // Get visitors
+    const visitors = await db.collection('visitors').find({
+      _id: { $in: visitorIds.map(id => new ObjectId(id)) },
+      ownerId: decoded.ownerId || decoded.userId
+    }).toArray();
 
     if (visitors.length === 0) {
-      return res.status(404).json({ message: 'No valid visitors found' });
+      return res.status(404).json({ message: 'No visitors found' });
     }
 
-    console.log(`📧 [Send Message API] Found ${visitors.length} valid visitors for messaging`);
+    // Get event details for template variables
+    let eventDetails = null;
+    if (eventId) {
+      try {
+        eventDetails = await db.collection('events').findOne({
+          _id: new ObjectId(eventId),
+          ownerId: decoded.ownerId || decoded.userId
+        });
+      } catch (error) {
+        console.error('Error fetching event details:', error);
+      }
+    }
 
-    // Send emails to all visitors
+    // Send actual emails and track results
     const emailResults = [];
-    const failedEmails = [];
-    
-    // Enhance subject line with event name if not already included
-    const enhancedSubject = subject.toLowerCase().includes(event.eventName.toLowerCase()) 
-      ? subject 
-      : `${subject} - ${event.eventName}`;
+    const sentMessages = [];
 
     for (const visitor of visitors) {
       try {
-        // Replace template variables in subject and message for each visitor
-        const personalizedSubject = replaceTemplateVariables(enhancedSubject, visitor, event, userInfo);
-        const personalizedMessage = replaceTemplateVariables(message, visitor, event, userInfo);
-        
-        const emailResult = await sendEmail(
-          visitor.email,
+        const visitorEmail = visitor.email;
+        if (!visitorEmail) {
+          console.warn(`Visitor ${visitor._id} has no email address, skipping...`);
+          continue;
+        }
+
+        // Replace template variables in message content
+        let personalizedMessage = messageContent;
+        let personalizedSubject = messageSubject || 'Message from Event Organizer';
+
+        // Replace visitor variables
+        personalizedMessage = personalizedMessage.replace(/{visitorName}/g, visitor.fullName || visitor.name || 'Guest');
+        personalizedMessage = personalizedMessage.replace(/{visitorEmail}/g, visitor.email || '');
+        personalizedMessage = personalizedMessage.replace(/{visitorPhone}/g, visitor.phone || visitor.phoneNumber || '');
+        personalizedMessage = personalizedMessage.replace(/{visitorCompany}/g, visitor.company || '');
+        personalizedMessage = personalizedMessage.replace(/{visitorStatus}/g, visitor.status || 'Registered');
+
+        personalizedSubject = personalizedSubject.replace(/{visitorName}/g, visitor.fullName || visitor.name || 'Guest');
+
+        // Replace event variables if event details are available
+        if (eventDetails) {
+          personalizedMessage = personalizedMessage.replace(/{eventName}/g, eventDetails.eventName || '');
+          personalizedMessage = personalizedMessage.replace(/{eventLocation}/g, eventDetails.eventLocation || '');
+          personalizedMessage = personalizedMessage.replace(/{eventStartDate}/g, eventDetails.eventStartDate || '');
+          personalizedMessage = personalizedMessage.replace(/{eventEndDate}/g, eventDetails.eventEndDate || '');
+          personalizedMessage = personalizedMessage.replace(/{eventTime}/g, eventDetails.eventStartTime || '');
+
+          personalizedSubject = personalizedSubject.replace(/{eventName}/g, eventDetails.eventName || '');
+        }
+
+        // Replace system variables
+        const currentDate = new Date();
+        personalizedMessage = personalizedMessage.replace(/{currentDate}/g, currentDate.toLocaleDateString());
+        personalizedMessage = personalizedMessage.replace(/{currentTime}/g, currentDate.toLocaleTimeString());
+        personalizedMessage = personalizedMessage.replace(/{year}/g, currentDate.getFullYear().toString());
+
+        // Send email
+        const emailSent = await sendEmail(
+          visitorEmail,
           personalizedSubject,
           personalizedMessage,
-          userInfo.email || 'noreply@visitrack.com',
-          userInfo.username,
-          event.eventName,
-          event.eventLocation,
-          new Date(event.eventStartDate).toLocaleDateString('en-US', {
-            weekday: 'long',
-            year: 'numeric',
-            month: 'long',
-            day: 'numeric'
-          })
+          visitor.fullName || visitor.name,
+          eventDetails?.eventName
         );
-        
+
+        const messageRecord = {
+          to: visitorEmail,
+          subject: personalizedSubject,
+          message: personalizedMessage,
+          visitorId: visitor._id,
+          visitorName: visitor.fullName || visitor.name,
+          eventId: eventId,
+          sentAt: new Date(),
+          status: emailSent ? 'sent' : 'failed',
+          ownerId: decoded.ownerId || decoded.userId
+        };
+
+        sentMessages.push(messageRecord);
         emailResults.push({
           visitorId: visitor._id,
-          email: visitor.email,
-          success: true,
-          messageId: emailResult.messageId
+          visitorName: visitor.fullName || visitor.name,
+          email: visitorEmail,
+          success: emailSent
         });
-        
-        console.log(`✅ [Send Message API] Email sent to: ${visitor.email}`);
-      } catch (emailError) {
-        console.error(`❌ [Send Message API] Failed to send email to ${visitor.email}:`, emailError);
-        failedEmails.push({
+
+        console.log(`📧 Email ${emailSent ? 'sent' : 'failed'} to ${visitorEmail} (${visitor.fullName || visitor.name})`);
+
+      } catch (error: any) {
+        console.error(`Error sending email to visitor ${visitor._id}:`, error);
+        emailResults.push({
           visitorId: visitor._id,
+          visitorName: visitor.fullName || visitor.name,
           email: visitor.email,
-          error: emailError instanceof Error ? emailError.message : 'Unknown error'
+          success: false,
+          error: error?.message || 'Unknown error'
         });
       }
     }
 
-    // Store message log in database
-    const messageLog = {
-      ownerId: userInfo.ownerId,
-      senderUserId: userInfo.userId,
-      senderEmail: userInfo.email,
-      eventId: eventId,
-      eventName: event.eventName,
-      originalSubject: subject,
-      subject: enhancedSubject,
-      message: message,
-      recipientCount: visitors.length,
-      successCount: emailResults.length,
-      failedCount: failedEmails.length,
-      recipients: visitors.map(v => ({
-        visitorId: v._id,
-        fullName: v.fullName,
-        email: v.email
-      })),
-      emailResults: emailResults,
-      failedEmails: failedEmails,
-      sentAt: new Date(),
-      createdAt: new Date()
-    };
-
-    await db.collection('messageLogs').insertOne(messageLog);
-
-    console.log(`✅ [Send Message API] Message log saved. Success: ${emailResults.length}, Failed: ${failedEmails.length}`);
-
-    // Return response
-    const response = {
-      message: 'Messages processed successfully',
-      summary: {
-        totalRecipients: visitors.length,
-        successCount: emailResults.length,
-        failedCount: failedEmails.length,
-        eventName: event.eventName
-      }
-    };
-
-    if (failedEmails.length > 0) {
-      response.message = `Messages sent with ${failedEmails.length} failures`;
-      // Include failed emails in response for debugging
-      (response as any).failedEmails = failedEmails;
+    // Store sent messages in database for tracking
+    if (sentMessages.length > 0) {
+      await db.collection('sentMessages').insertMany(sentMessages);
     }
 
-    return res.status(200).json(response);
+    const successCount = emailResults.filter(result => result.success).length;
+    const failureCount = emailResults.filter(result => !result.success).length;
 
-  } catch (error: any) {
-    console.error('❌ [Send Message API] Error:', error);
-    
-    if (error.message === 'Authentication required' || error.message === 'Invalid token') {
-      return res.status(401).json({ message: error.message });
-    }
-    
-    return res.status(500).json({ 
-      message: 'Internal server error',
-      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    res.status(200).json({
+      message: `Messages processed: ${successCount} sent, ${failureCount} failed`,
+      sentCount: successCount,
+      failureCount: failureCount,
+      totalCount: emailResults.length,
+      results: emailResults,
+      recipients: visitors.map((v: any) => ({ 
+        id: v._id, 
+        name: v.name || v.fullName, 
+        email: v.email 
+      }))
     });
+
+  } catch (error) {
+    console.error('Send message error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 } 

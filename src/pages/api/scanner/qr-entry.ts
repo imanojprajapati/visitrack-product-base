@@ -1,60 +1,9 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, MongoClientOptions, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
+import { connectToDatabase } from '../../../lib/mongodb';
 
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
-
-let cachedClient: MongoClient | null = null;
-
-const options: MongoClientOptions = {
-  tls: true,
-  tlsAllowInvalidCertificates: true,
-  tlsAllowInvalidHostnames: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
-  maxPoolSize: 5,
-  retryWrites: true,
-  retryReads: true,
-  family: 4
-};
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    try {
-      await cachedClient.db(dbName).admin().ping();
-      return cachedClient;
-    } catch (error) {
-      cachedClient = null;
-    }
-  }
-
-  const client = new MongoClient(uri, options);
-  await client.connect();
-  await client.db(dbName).admin().ping();
-  cachedClient = client;
-  console.log('✅ MongoDB connected successfully (qr-entry)');
-  return client;
-}
-
-function extractUserFromToken(authHeader?: string) {
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw new Error('Authentication required');
-  }
-
-  const token = authHeader.substring(7);
-  try {
-    const decoded: any = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key');
-    return {
-      userId: decoded.userId,
-      ownerId: decoded.ownerId,
-      username: decoded.username
-    };
-  } catch (error) {
-    throw new Error('Invalid token');
-  }
-}
+const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -62,184 +11,140 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 
   try {
-    const client = await connectToDatabase();
-    const db = client.db(dbName);
-    
-    const userInfo = extractUserFromToken(req.headers.authorization);
-    const { visitorId, qrData } = req.body;
+    // Verify JWT token
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ message: 'No token provided' });
+    }
 
-    console.log('🔍 [QR Entry API] Request:', {
-      method: req.method,
-      userId: userInfo.userId,
-      ownerId: userInfo.ownerId,
-      visitorId,
-      qrData: qrData?.substring(0, 50) + '...' // Log first 50 chars only
-    });
+    const decoded = jwt.verify(token, JWT_SECRET) as any;
+    if (!decoded) {
+      return res.status(401).json({ message: 'Invalid token' });
+    }
 
-    // Validate input
+    const { visitorId } = req.body;
+
     if (!visitorId) {
       return res.status(400).json({ message: 'Visitor ID is required' });
     }
 
-    // Clean visitor ID (remove any extra characters)
-    const cleanVisitorId = visitorId.toString().trim();
-
     // Validate ObjectId format
-    if (!ObjectId.isValid(cleanVisitorId)) {
-      return res.status(400).json({ 
-        message: 'Invalid visitor ID format. Please scan a valid QR code.',
-        details: `Received ID: ${cleanVisitorId}`
-      });
+    if (!ObjectId.isValid(visitorId)) {
+      return res.status(400).json({ message: 'Invalid visitor ID format' });
     }
 
-    // Find the visitor and verify ownership
-    const visitor = await db.collection('visitors').findOne({
-      _id: new ObjectId(cleanVisitorId),
-      ownerId: userInfo.ownerId
+    const { db } = await connectToDatabase();
+
+    console.log('🔍 [QR Scanner] Looking for visitor:', {
+      visitorId,
+      ownerId: decoded.ownerId || decoded.userId,
+      userId: decoded.userId
     });
 
+    // Find the visitor using ownerId (global variable) for proper filtering
+    const visitor = await db.collection('visitors').findOne({
+      _id: new ObjectId(visitorId),
+      ownerId: decoded.ownerId || decoded.userId
+    });
+
+    console.log('👤 [QR Scanner] Visitor found:', visitor ? {
+      id: visitor._id,
+      name: visitor.fullName || visitor.name,
+      email: visitor.email,
+      status: visitor.status,
+      ownerId: visitor.ownerId
+    } : 'NOT FOUND');
+
     if (!visitor) {
-      return res.status(404).json({ 
-        message: 'Visitor not found or access denied. Please check the QR code.',
-        details: `Visitor ID: ${cleanVisitorId}`
-      });
+      return res.status(404).json({ message: 'Visitor not found' });
     }
 
-    // Check if visitor status is already "Visited"
+    // Check if visitor has already visited
     if (visitor.status === 'Visited') {
-      return res.status(409).json({
-        message: `${visitor.fullName} has already visited`,
-        visitorId: cleanVisitorId,
-        visitorName: visitor.fullName,
-        visitorEmail: visitor.email,
-        visitorPhone: visitor.phoneNumber,
-        visitorCompany: visitor.company,
-        eventName: visitor.eventName,
-        eventLocation: visitor.eventLocation,
-        previousEntryType: visitor.entryType,
-        newEntryType: visitor.entryType, // Keep current entry type
-        previousStatus: visitor.status,
-        newStatus: visitor.status, // Keep current status
+      console.log('⚠️ [QR Scanner] Visitor already visited');
+      return res.status(409).json({ 
+        message: 'Visitor already visited',
         alreadyVisited: true,
-        visitedAt: visitor.lastScannedAt || visitor.updatedAt
-      });
-    }
-
-    // Check if visitor is already checked in via QR
-    if (visitor.entryType && ['QR', 'qr', 'QR Code', 'qrcode'].includes(visitor.entryType)) {
-      return res.status(200).json({
-        message: `${visitor.fullName} already checked in via QR code`,
-        visitorId: cleanVisitorId,
-        visitorName: visitor.fullName,
+        visitorId: visitor._id,
+        visitorName: visitor.fullName || visitor.name,
         visitorEmail: visitor.email,
-        visitorPhone: visitor.phoneNumber,
+        visitorPhone: visitor.phoneNumber || visitor.phone,
         visitorCompany: visitor.company,
         eventName: visitor.eventName,
         eventLocation: visitor.eventLocation,
-        previousEntryType: visitor.entryType,
-        newEntryType: 'QR',
         previousStatus: visitor.status,
-        newStatus: visitor.status, // Keep current status if already QR
-        alreadyCheckedIn: true
+        previousEntryType: visitor.entryType,
+        visitedAt: visitor.lastScannedAt || visitor.visitedAt || visitor.updatedAt
       });
     }
 
-    // Update the visitor's entry type to QR and status to Visited
+    // Update visitor entry type to QR and status to Visited
     const updateResult = await db.collection('visitors').updateOne(
-      {
-        _id: new ObjectId(cleanVisitorId),
-        ownerId: userInfo.ownerId
-      },
-      {
-        $set: {
+      { _id: new ObjectId(visitorId) },
+      { 
+        $set: { 
           entryType: 'QR',
-          status: 'Visited', // Update status to Visited when scanned
+          status: 'Visited',
           lastScannedAt: new Date(),
-          scannedBy: userInfo.userId,
+          scannedBy: decoded.userId,
+          visitedAt: new Date(),
           updatedAt: new Date()
         }
       }
     );
 
-    if (updateResult.modifiedCount === 0) {
-      return res.status(400).json({ message: 'Failed to update visitor entry type' });
+    if (updateResult.matchedCount === 0) {
+      return res.status(404).json({ message: 'Visitor not found' });
     }
 
-    console.log(`✅ [QR Entry API] Updated visitor ${cleanVisitorId} to QR entry type`);
-
-    // Log the QR entry action
+    // Log the entry
     await db.collection('entryLogs').insertOne({
-      visitorId: new ObjectId(cleanVisitorId),
-      visitorName: visitor.fullName,
+      visitorId: new ObjectId(visitorId),
+      visitorName: visitor.fullName || visitor.name,
       visitorEmail: visitor.email,
-      eventId: visitor.eventId,
-      eventName: visitor.eventName,
-      ownerId: userInfo.ownerId,
+      visitorPhone: visitor.phoneNumber || visitor.phone,
       entryType: 'QR',
-      entryBy: userInfo.userId,
-      entryByUsername: userInfo.username,
-      previousEntryType: visitor.entryType || 'None',
-      previousStatus: visitor.status,
-      newStatus: 'Visited',
-      qrData: qrData || null,
-      scanMethod: 'QR Scanner',
-      entryDate: new Date(),
+      entryTime: new Date(),
+      ownerId: decoded.ownerId || decoded.userId,
       createdAt: new Date()
     });
 
     // Update scan statistics
     await db.collection('scanStats').updateOne(
-      {
-        ownerId: userInfo.ownerId,
-        date: new Date().toISOString().split('T')[0] // Today's date
+      { 
+        date: new Date().toISOString().split('T')[0],
+        ownerId: decoded.ownerId || decoded.userId
       },
-      {
-        $inc: {
-          totalScans: 1,
-          qrScans: 1
-        },
-        $set: {
-          lastScanAt: new Date(),
-          lastScannedBy: userInfo.userId
-        }
+      { 
+        $inc: { count: 1 },
+        $set: { updatedAt: new Date() }
       },
       { upsert: true }
     );
 
-    return res.status(200).json({
-      message: `${visitor.fullName} successfully checked in via QR code`,
-      visitorId: cleanVisitorId,
-      visitorName: visitor.fullName,
-      visitorEmail: visitor.email,
-      visitorPhone: visitor.phoneNumber,
-      visitorCompany: visitor.company,
-      eventName: visitor.eventName,
-      eventLocation: visitor.eventLocation,
-      previousEntryType: visitor.entryType || 'None',
-      newEntryType: 'QR',
-      previousStatus: visitor.status,
-      newStatus: 'Visited',
-      scanTimestamp: new Date().toISOString()
+    // Get updated visitor data
+    const updatedVisitor = await db.collection('visitors').findOne({
+      _id: new ObjectId(visitorId)
     });
 
-  } catch (error: any) {
-    console.error('❌ [QR Entry API] Error:', error);
-    
-    if (error.message === 'Authentication required' || error.message === 'Invalid token') {
-      return res.status(401).json({ message: error.message });
-    }
-    
-    // Handle specific MongoDB errors
-    if (error.name === 'BSONTypeError') {
-      return res.status(400).json({ 
-        message: 'Invalid visitor ID format in QR code',
-        details: error.message
-      });
-    }
-    
-    return res.status(500).json({ 
-      message: 'Internal server error while processing QR code',
-      details: process.env.NODE_ENV === 'development' ? error.message : 'Please try again'
+    console.log('✅ [QR Scanner] Successfully processed QR entry');
+
+    res.status(200).json({
+      message: 'QR entry recorded successfully',
+      visitorId: updatedVisitor._id,
+      visitorName: updatedVisitor.fullName || updatedVisitor.name,
+      visitorEmail: updatedVisitor.email,
+      visitorPhone: updatedVisitor.phoneNumber || updatedVisitor.phone,
+      visitorCompany: updatedVisitor.company,
+      eventName: updatedVisitor.eventName,
+      eventLocation: updatedVisitor.eventLocation,
+      newStatus: updatedVisitor.status,
+      newEntryType: updatedVisitor.entryType,
+      visitedAt: updatedVisitor.lastScannedAt || updatedVisitor.visitedAt
     });
+
+  } catch (error) {
+    console.error('QR entry error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 } 

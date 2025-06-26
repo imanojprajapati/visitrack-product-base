@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
+import { connectToDatabase } from '../../lib/mongodb';
 
 const MONGODB_URI = process.env.MONGODB_URI!;
 const MONGODB_DB = process.env.MONGODB_DB || 'visitrackp';
@@ -53,13 +54,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(403).json({ message: 'Access denied. Admin role required.' });
   }
 
-  const client = new MongoClient(MONGODB_URI);
-
   try {
     console.log('🔗 [Users API] Connecting to MongoDB...');
-    await client.connect();
+    const { db } = await connectToDatabase();
     console.log('✅ [Users API] MongoDB connected successfully');
-    const db = client.db(MONGODB_DB);
     console.log('📁 [Users API] Using database:', MONGODB_DB);
 
     console.log('👤 [Users API] Fetching admin details for ownerId:', userInfo.ownerId);
@@ -96,7 +94,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log(`✅ [Users API] Found ${users.length} users with ownerId: ${adminUser.ownerId}`);
 
     // Remove password field from response
-    const sanitizedUsers = users.map(user => {
+    const sanitizedUsers = users.map((user: any) => {
       const { password, ...userWithoutPassword } = user;
       return userWithoutPassword;
     });
@@ -107,12 +105,5 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.error('❌ [Users API] Error:', error);
     console.error('❌ [Users API] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
     res.status(500).json({ message: 'Internal server error', error: error instanceof Error ? error.message : 'Unknown error' });
-  } finally {
-    try {
-      await client.close();
-      console.log('🔌 [Users API] MongoDB connection closed');
-    } catch (closeError) {
-      console.error('❌ [Users API] Error closing connection:', closeError);
-    }
   }
 } 

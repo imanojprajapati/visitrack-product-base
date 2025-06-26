@@ -22,7 +22,9 @@ import {
   Hash,
   CheckCircle,
   Clock,
-  Filter
+  Filter,
+  Upload,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface Visitor {
@@ -92,6 +94,11 @@ const Reports = () => {
   const [centerDbCurrentPage, setCenterDbCurrentPage] = useState(1);
   const [centerDbTotalPages, setCenterDbTotalPages] = useState(1);
   const [centerDbTotalCount, setCenterDbTotalCount] = useState(0);
+
+  // Import states
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
 
   // Cascading Filter States
   const [filters, setFilters] = useState({
@@ -458,6 +465,79 @@ const Reports = () => {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+  };
+
+  const handleFileImport = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Validate file type
+    const allowedTypes = [
+      'text/csv',
+      'application/vnd.ms-excel',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    ];
+    
+    const fileExtension = file.name.split('.').pop()?.toLowerCase();
+    const isValidType = allowedTypes.includes(file.type) || 
+                       ['csv', 'xls', 'xlsx'].includes(fileExtension || '');
+    
+    if (!isValidType) {
+      setImportError('Please upload a valid CSV or Excel file');
+      return;
+    }
+
+    // Validate file size (100MB limit)
+    if (file.size > 100 * 1024 * 1024) {
+      setImportError('File size must be less than 100MB');
+      return;
+    }
+
+    const authToken = localStorage.getItem('authToken');
+    if (!authToken) {
+      router.push('/login');
+      return;
+    }
+
+    try {
+      setImporting(true);
+      setImportError('');
+      setImportSuccess('');
+
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch('/api/visitor-dataset/import', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${authToken}`,
+        },
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      if (response.ok) {
+        setImportSuccess(result.message);
+        // Refresh the center DB data
+        await fetchCenterDbData(1, centerDbSearchTerm);
+        // Clear success message after 5 seconds
+        setTimeout(() => setImportSuccess(''), 5000);
+      } else {
+        setImportError(result.message || 'Failed to import data');
+        // Clear error message after 10 seconds
+        setTimeout(() => setImportError(''), 10000);
+      }
+    } catch (error) {
+      console.error('Import error:', error);
+      setImportError('Failed to import data. Please try again.');
+      // Clear error message after 10 seconds
+      setTimeout(() => setImportError(''), 10000);
+    } finally {
+      setImporting(false);
+      // Clear the file input
+      event.target.value = '';
+    }
   };
 
   // Show loading while checking authentication
@@ -1001,7 +1081,7 @@ const Reports = () => {
           {activeTab === 'center-db' && (
             <div className="space-y-6">
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
                 <Card>
                   <CardContent className="p-6">
                     <div className="flex items-center">
@@ -1050,7 +1130,96 @@ const Reports = () => {
                     </div>
                   </CardContent>
                 </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-orange-100 rounded-lg">
+                        <Upload className="w-6 h-6 text-orange-600" />
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Import Data</p>
+                        <div className="mt-1">
+                          <input
+                            type="file"
+                            accept=".csv,.xlsx,.xls"
+                            onChange={handleFileImport}
+                            className="hidden"
+                            id="file-import"
+                            disabled={importing}
+                          />
+                          <Button 
+                            asChild
+                            size="sm"
+                            disabled={importing}
+                          >
+                            <label htmlFor="file-import" className="cursor-pointer">
+                              {importing ? 'Importing...' : 'Browse'}
+                            </label>
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
+
+              {/* Import Status Messages */}
+              {(importError || importSuccess) && (
+                <Card>
+                  <CardContent className="p-4">
+                    {importError && (
+                      <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-4">
+                        <div className="flex items-center">
+                          <div className="p-1 bg-red-100 rounded-full mr-3">
+                            <FileText className="w-4 h-4 text-red-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-red-800">Import Error</h4>
+                            <p className="text-sm text-red-600">{importError}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                    
+                    {importSuccess && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                        <div className="flex items-center">
+                          <div className="p-1 bg-green-100 rounded-full mr-3">
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                          </div>
+                          <div>
+                            <h4 className="font-medium text-green-800">Import Successful</h4>
+                            <p className="text-sm text-green-600">{importSuccess}</p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              )}
+
+              {/* Import Instructions */}
+              <Card>
+                <CardContent className="p-6">
+                  <div className="flex items-start gap-4">
+                    <div className="p-2 bg-blue-50 rounded-lg">
+                      <FileSpreadsheet className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div className="flex-1">
+                      <h3 className="font-medium text-gray-900 mb-2">Import Instructions</h3>
+                                             <div className="text-sm text-gray-600 space-y-2">
+                         <p>• Supported formats: CSV, Excel (.xlsx, .xls)</p>
+                         <p>• Maximum file size: 100MB</p>
+                         <p>• Required columns: At least one of Name, Email, or Phone Number</p>
+                         <p>• Supported columns: Name, Email, Phone, Company, City, State, Country, Pincode</p>
+                         <p>• Extra columns will be automatically included in the import</p>
+                         <p>• Duplicate detection is based on email and phone number</p>
+                       </div>
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
 
               {/* Search */}
               <Card>

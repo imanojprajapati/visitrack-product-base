@@ -1,58 +1,25 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, MongoClientOptions, ObjectId } from 'mongodb';
-
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
-
-let cachedClient: MongoClient | null = null;
-
-const options: MongoClientOptions = {
-  tls: true,
-  tlsAllowInvalidCertificates: true,
-  tlsAllowInvalidHostnames: true,
-  serverSelectionTimeoutMS: 5000,
-  socketTimeoutMS: 45000,
-  connectTimeoutMS: 10000,
-  maxPoolSize: 5,
-  retryWrites: true,
-  retryReads: true,
-  family: 4
-};
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    try {
-      await cachedClient.db(dbName).admin().ping();
-      return cachedClient;
-    } catch (error) {
-      cachedClient = null;
-    }
-  }
-
-  const client = new MongoClient(uri, options);
-  await client.connect();
-  await client.db(dbName).admin().ping();
-  cachedClient = client;
-  console.log('✅ MongoDB connected successfully (register-visitor)');
-  return client;
-}
+import { ObjectId } from 'mongodb';
+import { connectToDatabase } from '../../lib/mongodb';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
-    res.setHeader('Allow', ['POST']);
     return res.status(405).json({ message: 'Method not allowed' });
   }
 
   try {
-    const {
+    // Extract data from request body - handle both old and new field names
+    const { 
+      name, 
+      fullName, 
+      email, 
+      phone, 
+      phoneNumber, 
       eventId,
       eventName,
       eventLocation,
       eventStartDate,
       eventEndDate,
-      fullName,
-      email,
-      phoneNumber,
       company,
       city,
       state,
@@ -61,146 +28,112 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       source,
       visitorRegistrationDate,
       status,
-      ...additionalFields // Any additional form fields
+      ...additionalData
     } = req.body;
 
-    // Validate required fields
-    if (!eventId || !fullName || !email || !phoneNumber) {
-      return res.status(400).json({ 
-        message: 'Event ID, full name, email, and phone number are required' 
+    // Use fullName if provided, otherwise fall back to name
+    const visitorName = fullName || name;
+    const visitorPhone = phoneNumber || phone;
+
+    // Basic validation
+    if (!visitorName || !email) {
+      return res.status(400).json({ message: 'Name and email are required' });
+    }
+
+    const { db } = await connectToDatabase();
+
+    // Check if visitor already exists for this event
+    // Handle both string and ObjectId formats for eventId
+    const eventQuery: any = { email: email };
+    if (eventId) {
+      // Try both string and ObjectId formats for backwards compatibility
+      eventQuery.$or = [
+        { eventId: eventId }, // String format
+        { eventId: new ObjectId(eventId) } // ObjectId format
+      ];
+    } else {
+      eventQuery.eventId = null;
+    }
+
+    const existingVisitor = await db.collection('visitors').findOne(eventQuery);
+
+    if (existingVisitor) {
+      return res.status(409).json({ 
+        message: 'Visitor already registered for this event',
+        visitorId: existingVisitor._id
       });
     }
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(email)) {
-      return res.status(400).json({ message: 'Invalid email format' });
-    }
-
-    const client = await connectToDatabase();
-    const db = client.db(dbName);
-
-    // Fetch event details to get ownerId
-    const event = await db.collection('events').findOne({
-      _id: new ObjectId(eventId)
-    });
-
-    if (!event) {
-      return res.status(404).json({ message: 'Event not found' });
-    }
-
-    // Fetch form details to transform additional field IDs to labels
-    const form = await db.collection('forms').findOne({
-      eventId: eventId
-    });
-
-    // Note: Duplicate registration check is handled in step 1 (email verification)
-    // If user reaches this point, they have already passed the duplicate check
-
-    // Transform additional fields from field IDs to readable labels
-    const transformedAdditionalFields: Record<string, any> = {};
+    // Get event details if eventId is provided
+    let event = null;
+    let ownerId = null;
     
-    if (form && form.fields) {
-      // Create a map of field ID to label for non-default fields
-      const fieldMap = form.fields.reduce((map: Record<string, string>, field: any) => {
-        if (!field.isDefault) {
-          map[field.id] = field.label;
-        }
-        return map;
-      }, {});
-
-      // Transform additional fields using the field map
-      Object.keys(additionalFields).forEach(fieldId => {
-        const fieldLabel = fieldMap[fieldId];
-        if (fieldLabel) {
-          transformedAdditionalFields[fieldLabel] = additionalFields[fieldId];
-        } else {
-          // Keep original field ID if no label found (fallback)
-          transformedAdditionalFields[fieldId] = additionalFields[fieldId];
-        }
-      });
-    } else {
-      // If no form found, keep original additional fields
-      Object.assign(transformedAdditionalFields, additionalFields);
+    if (eventId) {
+      event = await db.collection('events').findOne({ _id: new ObjectId(eventId) });
+      if (!event) {
+        return res.status(404).json({ message: 'Event not found' });
+      }
+      ownerId = event.ownerId;
     }
 
-    // Format visitor registration date as YYYY-MM-DD (same format as event dates)
-    let formattedRegistrationDate: string;
-    
-    if (visitorRegistrationDate) {
-      // If date is provided, ensure it's in YYYY-MM-DD format
-      const providedDate = new Date(visitorRegistrationDate);
-      formattedRegistrationDate = `${providedDate.getFullYear()}-${String(providedDate.getMonth() + 1).padStart(2, '0')}-${String(providedDate.getDate()).padStart(2, '0')}`;
-    } else {
-      // If no date provided, use current date in YYYY-MM-DD format
-      const currentDate = new Date();
-      formattedRegistrationDate = `${currentDate.getFullYear()}-${String(currentDate.getMonth() + 1).padStart(2, '0')}-${String(currentDate.getDate()).padStart(2, '0')}`;
-    }
-
-    // Create visitor record with ownerId from event
-    const visitorData = {
-      eventId,
-      eventName,
-      eventLocation,
-      eventStartDate,
-      eventEndDate,
-      ownerId: event.ownerId, // Add ownerId from event
-      fullName,
-      email,
-      phoneNumber,
+    // Create new visitor with comprehensive data structure
+    const newVisitor = {
+      // Core visitor information
+      fullName: visitorName,
+      name: visitorName, // Keep both for compatibility
+      email: email,
+      phoneNumber: visitorPhone || '',
+      phone: visitorPhone || '', // Keep both for compatibility
+      
+      // Event information - store as string for consistency
+      eventId: eventId || null,
+      eventName: eventName || event?.eventName || null,
+      eventLocation: eventLocation || event?.eventLocation || null,
+      eventStartDate: eventStartDate || event?.eventStartDate || null,
+      eventEndDate: eventEndDate || event?.eventEndDate || null,
+      
+      // Additional visitor details
       company: company || '',
       city: city || '',
       state: state || '',
       country: country || '',
       pincode: pincode || '',
-      source: source || 'Website', // Default to 'Website' as requested
-      entryType: '-', // Default entry type value
-      visitorRegistrationDate: formattedRegistrationDate, // Format as YYYY-MM-DD
-      status: status || 'Registration', // Default to 'Registration' as requested
+      source: source || 'Website',
+      
+      // Registration metadata
+      status: status || 'Registration',
+      entryType: 'Online',
+      registrationDate: new Date(),
+      visitorRegistrationDate: visitorRegistrationDate || new Date().toISOString().split('T')[0],
+      
+      // System fields
+      ownerId: ownerId,
       createdAt: new Date(),
       updatedAt: new Date(),
-      ...transformedAdditionalFields // Include transformed additional form fields
+      
+      // Include any additional form data
+      ...additionalData
     };
 
-    console.log('✅ No duplicate registration found - proceeding with new registration');
-    console.log('💾 Saving visitor registration:', {
-      eventId,
-      eventName,
-      ownerId: event.ownerId,
-      fullName,
-      email,
-      phoneNumber,
-      visitorRegistrationDate: formattedRegistrationDate,
-      additionalFields: transformedAdditionalFields,
-      status: visitorData.status
-    });
-
-    // Insert visitor record
-    const result = await db.collection('visitors').insertOne(visitorData);
-
-    // Update event visitor count (optional)
-    try {
-      await db.collection('events').updateOne(
-        { _id: new ObjectId(eventId) },
-        { $inc: { visitorCount: 1 } }
-      );
-    } catch (error) {
-      console.warn('Failed to update event visitor count:', error);
-      // Don't fail the registration if this update fails
-    }
-
-    console.log('✅ Visitor registered successfully:', result.insertedId);
+    const result = await db.collection('visitors').insertOne(newVisitor);
 
     res.status(201).json({ 
-      message: 'Registration completed successfully',
+      message: 'Visitor registered successfully',
       visitorId: result.insertedId,
-      eventName,
-      ownerId: event.ownerId,
-      status: visitorData.status
+      visitor: {
+        id: result.insertedId,
+        fullName: visitorName,
+        name: visitorName,
+        email: email,
+        phoneNumber: visitorPhone,
+        phone: visitorPhone,
+        eventName: eventName || event?.eventName,
+        status: status || 'Registration'
+      }
     });
 
   } catch (error) {
-    console.error('Error registering visitor:', error);
-    res.status(500).json({ message: 'Failed to complete registration' });
+    console.error('Registration error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 } 

@@ -1,26 +1,10 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient } from 'mongodb';
 import nodemailer from 'nodemailer';
-
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
+import { connectToDatabase, dbName } from '../../lib/mongodb';
 
 // Gmail configuration
 const GMAIL_USER = process.env.GMAIL_USER || 'visitrackoffical@gmail.com';
 const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD || 'ojadmobcwskreljt';
-
-let cachedClient: MongoClient | null = null;
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  const client = new MongoClient(uri);
-  await client.connect();
-  cachedClient = client;
-  return client;
-}
 
 // Generate random 6-digit OTP
 function generateOTP(): string {
@@ -112,8 +96,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ message: 'Invalid email format' });
     }
 
-    const client = await connectToDatabase();
-    const db = client.db(dbName);
+    const { db } = await connectToDatabase();
 
     // Generate OTP
     const otp = generateOTP();

@@ -1,28 +1,12 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
+import { connectToDatabase, dbName } from '../../lib/mongodb';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB = process.env.MONGODB_DB;
 const JWT_SECRET = process.env.JWT_SECRET;
-
-let cachedClient: MongoClient | null = null;
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  if (!MONGODB_URI) {
-    throw new Error('MONGODB_URI is not defined');
-  }
-
-  const client = new MongoClient(MONGODB_URI);
-  await client.connect();
-  cachedClient = client;
-  return client;
-}
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'POST') {
@@ -71,8 +55,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
 
     // Connect to database
-    const client = await connectToDatabase();
-    const db = client.db(MONGODB_DB!);
+    const { db } = await connectToDatabase();
     const usersCollection = db.collection('users');
 
     // Check if user already exists

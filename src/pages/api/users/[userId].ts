@@ -1,6 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
+import { connectToDatabase } from '../../../lib/mongodb';
 
 const MONGODB_URI = process.env.MONGODB_URI!;
 const MONGODB_DB = process.env.MONGODB_DB || 'visitrackp';
@@ -59,12 +60,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(403).json({ message: 'Access denied. Admin role required.' });
   }
 
-  const client = new MongoClient(MONGODB_URI);
-
   try {
     console.log('🔗 [User API] Connecting to MongoDB...');
-    await client.connect();
-    const db = client.db(MONGODB_DB);
+    const { db } = await connectToDatabase();
     console.log('📁 [User API] Using database:', MONGODB_DB);
 
     if (req.method === 'PUT') {
@@ -77,8 +75,6 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   } catch (error) {
     console.error('❌ [User API] Error:', error);
     res.status(500).json({ message: 'Internal server error' });
-  } finally {
-    await client.close();
   }
 }
 

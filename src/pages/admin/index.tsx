@@ -271,7 +271,7 @@ export default function AdminDashboard() {
                   <div className="flex items-center gap-2">
                     <Filter className="w-4 h-4 text-[#3F72AF]" />
                     <span className="text-sm font-medium text-[#112D4E]">Filter by Event:</span>
-                  </div>
+                </div>
                   <div className="flex-1 sm:flex-none">
                     <Select value={selectedEventId} onValueChange={setSelectedEventId}>
                       <SelectTrigger className="w-full sm:w-64">
@@ -286,7 +286,7 @@ export default function AdminDashboard() {
                         ))}
                       </SelectContent>
                     </Select>
-                  </div>
+                </div>
                   {selectedEventId !== 'all' && (
                     <span className="text-xs text-[#3F72AF] bg-[#DBE2EF] px-2 py-1 rounded">
                       Showing data for selected event only
@@ -530,7 +530,7 @@ export default function AdminDashboard() {
               ) : (
                 <div className="h-[250px] sm:h-[300px] flex items-center justify-center text-gray-500 text-sm">
                   {loading ? 'Loading trend data...' : 'No trend data available'}
-                </div>
+            </div>
               )}
             </CardContent>
           </Card>

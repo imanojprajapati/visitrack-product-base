@@ -1,21 +1,6 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, ObjectId } from 'mongodb';
-
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
-
-let cachedClient: MongoClient | null = null;
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  const client = new MongoClient(uri);
-  await client.connect();
-  cachedClient = client;
-  return client;
-}
+import { ObjectId } from 'mongodb';
+import { connectToDatabase, dbName } from '../../../../lib/mongodb';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method !== 'GET') {
@@ -30,8 +15,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       return res.status(400).json({ message: 'Valid event ID is required' });
     }
 
-    const client = await connectToDatabase();
-    const db = client.db(dbName);
+    const { db } = await connectToDatabase();
 
     console.log('🏷️ Looking for badge with eventId:', eventId);
 

@@ -1,9 +1,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
-import { MongoClient, ObjectId } from 'mongodb';
+import { ObjectId } from 'mongodb';
 import jwt from 'jsonwebtoken';
-
-const uri = process.env.MONGODB_URI!;
-const dbName = process.env.MONGODB_DB!;
+import { connectToDatabase as connectToMongoDB, dbName } from '@/lib/mongodb';
 
 // Interface for JWT payload
 interface JWTPayload {
@@ -17,18 +15,7 @@ interface JWTPayload {
   exp?: number;
 }
 
-let cachedClient: MongoClient | null = null;
-
-async function connectToDatabase() {
-  if (cachedClient) {
-    return cachedClient;
-  }
-
-  const client = new MongoClient(uri);
-  await client.connect();
-  cachedClient = client;
-  return client;
-}
+// Connection is now handled by the shared MongoDB utility
 
 // Helper function to extract and validate JWT payload
 function extractUserFromToken(authHeader: string | undefined): JWTPayload {
@@ -58,8 +45,7 @@ function extractUserFromToken(authHeader: string | undefined): JWTPayload {
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   if (req.method === 'GET') {
     try {
-      const client = await connectToDatabase();
-      const db = client.db(dbName);
+      const { db } = await connectToMongoDB();
       
       const userInfo = extractUserFromToken(req.headers.authorization);
       
@@ -107,7 +93,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .toArray();
 
       // Convert ObjectId to string for frontend consumption
-      const visitors = rawVisitors.map(visitor => ({
+      const visitors = rawVisitors.map((visitor: any) => ({
         ...visitor,
         _id: visitor._id.toString()
       }));
