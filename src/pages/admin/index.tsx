@@ -4,9 +4,10 @@ import Head from 'next/head';
 import { useAuth } from '../../context/AuthContext';
 import AdminLayout from '../../components/AdminLayout';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, AreaChart, Area } from 'recharts';
-import { CalendarDays, Users, TrendingUp, Eye } from 'lucide-react';
+import { CalendarDays, Users, TrendingUp, Eye, Filter } from 'lucide-react';
 
 interface DashboardStats {
   totalEvents: number;
@@ -31,6 +32,13 @@ interface RegistrationTrend {
   date: string;
   registrations: number;
   visited: number;
+}
+
+interface Event {
+  _id: string;
+  eventName: string;
+  eventDate: string;
+  eventLocation: string;
 }
 
 const chartConfig = {
@@ -65,6 +73,8 @@ export default function AdminDashboard() {
   const [statusData, setStatusData] = useState<StatusData[]>([]);
   const [registrationTrend, setRegistrationTrend] = useState<RegistrationTrend[]>([]);
   const [loading, setLoading] = useState(true);
+  const [events, setEvents] = useState<Event[]>([]);
+  const [selectedEventId, setSelectedEventId] = useState<string>('all');
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -76,7 +86,7 @@ export default function AdminDashboard() {
     if (isAuthenticated && user?.id) {
       fetchDashboardData();
     }
-  }, [user?.id, isAuthenticated]);
+  }, [user?.id, isAuthenticated, selectedEventId]);
 
   const fetchDashboardData = async () => {
     const authToken = localStorage.getItem('authToken');
@@ -89,14 +99,20 @@ export default function AdminDashboard() {
       const eventsResponse = await fetch('/api/events', {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
-      const events = eventsResponse.ok ? await eventsResponse.json() : [];
+      const eventsData = eventsResponse.ok ? await eventsResponse.json() : [];
+      setEvents(eventsData);
 
       // Fetch visitors
       const visitorsResponse = await fetch('/api/visitors?limit=1000', {
         headers: { 'Authorization': `Bearer ${authToken}` }
       });
       const visitorsData = visitorsResponse.ok ? await visitorsResponse.json() : { visitors: [] };
-      const visitors = visitorsData.visitors || [];
+      let visitors = visitorsData.visitors || [];
+
+      // Filter visitors by selected event if not 'all'
+      if (selectedEventId !== 'all') {
+        visitors = visitors.filter((v: any) => v.eventId === selectedEventId);
+      }
 
       // Calculate stats
       const today = new Date().toISOString().split('T')[0];
@@ -104,23 +120,46 @@ export default function AdminDashboard() {
       const recentRegistrations = visitors.filter((v: any) => v.visitorRegistrationDate === today).length;
 
       setStats({
-        totalEvents: events.length,
+        totalEvents: selectedEventId === 'all' ? eventsData.length : 1,
         totalAttendees: visitors.length,
         visitedCount,
         recentRegistrations
       });
 
       // Prepare event data for bar chart
-      const eventAttendees = events.map((event: any) => {
-        const eventVisitors = visitors.filter((v: any) => v.eventId === event._id);
-        const visitedVisitors = eventVisitors.filter((v: any) => v.status.toLowerCase() === 'visited');
-        return {
-          eventName: event.eventName.length > 15 ? event.eventName.substring(0, 15) + '...' : event.eventName,
-          attendeeCount: eventVisitors.length,
-          visitedCount: visitedVisitors.length
-        };
-      });
-      setEventData(eventAttendees.slice(0, 6)); // Show top 6 events
+      let eventAttendees;
+      if (selectedEventId === 'all') {
+        eventAttendees = eventsData.map((event: any) => {
+          const eventVisitors = visitors.filter((v: any) => v.eventId === event._id);
+          const visitedVisitors = eventVisitors.filter((v: any) => v.status.toLowerCase() === 'visited');
+          return {
+            eventName: event.eventName.length > 15 ? event.eventName.substring(0, 15) + '...' : event.eventName,
+            attendeeCount: eventVisitors.length,
+            visitedCount: visitedVisitors.length
+          };
+        });
+        setEventData(eventAttendees.slice(0, 6)); // Show top 6 events
+      } else {
+        // For single event, show daily breakdown
+        const selectedEvent = eventsData.find((e: any) => e._id === selectedEventId);
+        if (selectedEvent) {
+          const dailyData = [];
+          for (let i = 6; i >= 0; i--) {
+            const date = new Date();
+            date.setDate(date.getDate() - i);
+            const dateStr = date.toISOString().split('T')[0];
+            const dayVisitors = visitors.filter((v: any) => v.visitorRegistrationDate === dateStr);
+            const dayVisited = dayVisitors.filter((v: any) => v.status.toLowerCase() === 'visited');
+            
+            dailyData.push({
+              eventName: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+              attendeeCount: dayVisitors.length,
+              visitedCount: dayVisited.length
+            });
+          }
+          setEventData(dailyData);
+        }
+      }
 
       // Prepare status data for pie chart
       const registrationCount = visitors.filter((v: any) => v.status.toLowerCase() === 'registration').length;
@@ -187,6 +226,40 @@ export default function AdminDashboard() {
             </p>
           </div>
 
+          {/* Event Filter */}
+          <div className="mb-6">
+            <Card className="border-[#DBE2EF]">
+              <CardContent className="p-4">
+                <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <Filter className="w-4 h-4 text-[#3F72AF]" />
+                    <span className="text-sm font-medium text-[#112D4E]">Filter by Event:</span>
+                  </div>
+                  <div className="flex-1 sm:flex-none">
+                    <Select value={selectedEventId} onValueChange={setSelectedEventId}>
+                      <SelectTrigger className="w-full sm:w-64">
+                        <SelectValue placeholder="Select an event" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="all">All Events</SelectItem>
+                        {events.map((event) => (
+                          <SelectItem key={event._id} value={event._id}>
+                            {event.eventName}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {selectedEventId !== 'all' && (
+                    <span className="text-xs text-[#3F72AF] bg-[#DBE2EF] px-2 py-1 rounded">
+                      Showing data for selected event only
+                    </span>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
 
 
           {/* Stats Cards */}
@@ -245,8 +318,15 @@ export default function AdminDashboard() {
             {/* Event Attendees Bar Chart */}
             <Card className="border-[#DBE2EF]">
               <CardHeader>
-                <CardTitle className="text-[#112D4E] text-lg sm:text-xl">Event Attendance Overview</CardTitle>
-                <CardDescription className="text-sm">Total registrations vs visited by event</CardDescription>
+                <CardTitle className="text-[#112D4E] text-lg sm:text-xl">
+                  {selectedEventId === 'all' ? 'Event Attendance Overview' : 'Daily Attendance Trend'}
+                </CardTitle>
+                <CardDescription className="text-sm">
+                  {selectedEventId === 'all' 
+                    ? 'Total registrations vs visited by event' 
+                    : 'Daily registrations vs visited for selected event'
+                  }
+                </CardDescription>
               </CardHeader>
               <CardContent className="p-4 sm:p-6">
                 {eventData.length > 0 ? (
@@ -321,8 +401,20 @@ export default function AdminDashboard() {
           {/* Registration Trend Chart */}
           <Card className="border-[#DBE2EF] mb-8">
             <CardHeader>
-              <CardTitle className="text-[#112D4E] text-lg sm:text-xl">Registration Trend (Last 7 Days)</CardTitle>
-              <CardDescription className="text-sm">Daily registration and visit trends</CardDescription>
+              <CardTitle className="text-[#112D4E] text-lg sm:text-xl">
+                Registration Trend (Last 7 Days)
+                {selectedEventId !== 'all' && (
+                  <span className="text-sm font-normal text-[#3F72AF] ml-2">
+                    - {events.find(e => e._id === selectedEventId)?.eventName}
+                  </span>
+                )}
+              </CardTitle>
+              <CardDescription className="text-sm">
+                {selectedEventId === 'all' 
+                  ? 'Daily registration and visit trends across all events'
+                  : 'Daily registration and visit trends for selected event'
+                }
+              </CardDescription>
             </CardHeader>
             <CardContent className="p-4 sm:p-6">
               {registrationTrend.length > 0 ? (
