@@ -8,6 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { useDebounceSearch } from '@/hooks/use-debounced-search';
+import jsPDF from 'jspdf';
+import QRCode from 'qrcode';
 
 import { 
   ClipboardList,
@@ -28,7 +30,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Users,
-  Edit
+  Edit,
+  Printer
 } from 'lucide-react';
 
 interface Visitor {
@@ -235,6 +238,75 @@ const EntryLog = () => {
       return <Badge className="bg-green-100 text-green-800 border-green-200">Visited</Badge>;
     } else {
       return <Badge className="bg-orange-100 text-orange-800 border-orange-200">Registration</Badge>;
+    }
+  };
+
+  const handlePrintBadge = async (visitor: Visitor) => {
+    try {
+      // Generate QR code
+      const qrCodeDataUrl = await QRCode.toDataURL(visitor._id, {
+        width: 60,
+        margin: 1,
+        color: {
+          dark: '#000000',
+          light: '#FFFFFF'
+        }
+      });
+
+      // Create PDF with custom dimensions (200x80px at 72 DPI)
+      const pdf = new jsPDF({
+        orientation: 'landscape',
+        unit: 'px',
+        format: [200, 80]
+      });
+
+      // Set up basic styling
+      pdf.setFontSize(8);
+      pdf.setTextColor(0, 0, 0);
+
+      // Add QR code on the left side
+      pdf.addImage(qrCodeDataUrl, 'PNG', 10, 10, 60, 60);
+
+      // Add visitor details on the right side
+      const rightSideX = 80;
+      let currentY = 15;
+      
+      // Visitor Name (bold)
+      pdf.setFont('helvetica', 'bold');
+      pdf.setFontSize(10);
+      pdf.text(visitor.fullName, rightSideX, currentY);
+      currentY += 12;
+
+      // Visitor ID
+      pdf.setFont('helvetica', 'normal');
+      pdf.setFontSize(7);
+      pdf.text(`ID: ${visitor._id}`, rightSideX, currentY);
+      currentY += 10;
+
+      // Event Name
+      pdf.setFontSize(8);
+      pdf.text(`Event: ${visitor.eventName}`, rightSideX, currentY);
+      currentY += 10;
+
+      // Company (if available)
+      if (visitor.company) {
+        pdf.text(`Company: ${visitor.company}`, rightSideX, currentY);
+      }
+
+      // Save the PDF
+      pdf.save(`badge_${visitor.fullName.replace(/\s+/g, '_')}_${visitor._id}.pdf`);
+
+      toast({
+        title: "Success",
+        description: "Badge downloaded successfully",
+      });
+    } catch (error) {
+      console.error('Error generating badge:', error);
+      toast({
+        title: "Error",
+        description: "Failed to generate badge. Please try again.",
+        variant: "destructive"
+      });
     }
   };
 
@@ -452,6 +524,18 @@ const EntryLog = () => {
                           <div className="text-xs text-gray-500 pt-2 border-t">
                             ID: {visitor._id}
                           </div>
+                          
+                          <div className="pt-3 border-t">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handlePrintBadge(visitor)}
+                              className="flex items-center gap-2 w-full text-sm"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Print Badge
+                            </Button>
+                          </div>
                         </div>
                       </CardContent>
                     </Card>
@@ -469,6 +553,7 @@ const EntryLog = () => {
                         <th className="text-left py-3 px-4 font-medium text-gray-900">Entry Type</th>
                         <th className="text-left py-3 px-4 font-medium text-gray-900">Status</th>
                         <th className="text-left py-3 px-4 font-medium text-gray-900">Date</th>
+                        <th className="text-left py-3 px-4 font-medium text-gray-900">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -511,6 +596,17 @@ const EntryLog = () => {
                             <div className="text-sm text-gray-600">
                               {new Date(visitor.visitorRegistrationDate).toLocaleDateString()}
                             </div>
+                          </td>
+                          <td className="py-3 px-4">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={() => handlePrintBadge(visitor)}
+                              className="flex items-center gap-2 text-sm"
+                            >
+                              <Printer className="w-3 h-3" />
+                              Print Badge
+                            </Button>
                           </td>
                         </tr>
                       ))}
