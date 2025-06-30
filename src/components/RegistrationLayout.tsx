@@ -76,10 +76,10 @@ const RegistrationLayout: React.FC<RegistrationLayoutProps> = ({ children, badge
                 </div>
                 <div className="text-center sm:text-left">
                   <h3 className="font-semibold text-base sm:text-lg md:text-xl">
-                    {badge.badgeName}
+                    {event.eventName}
                   </h3>
                   <p className="text-gray-300 text-xs sm:text-sm md:text-base">
-                    {event.eventName}
+                    Event Registration
                   </p>
                 </div>
               </div>
