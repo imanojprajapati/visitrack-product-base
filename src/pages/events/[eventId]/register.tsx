@@ -564,9 +564,9 @@ const RegistrationPage = () => {
     if (!visitorData || !badge) return;
 
     try {
-      // Generate QR code for visitor ID
+      // Generate QR code for visitor ID - 1.2 inch x 1.2 inch
       const badgeQRCode = await QRCode.toDataURL(visitorData.visitorId, {
-        width: 72, // 0.75 inch
+        width: 115, // 1.2 inch at 96 DPI
         margin: 1,
         color: {
           dark: '#112D4E',
@@ -586,44 +586,38 @@ const RegistrationPage = () => {
       
       badgeContainer.innerHTML = `
         <div style="width: 100%; height: 100%; display: flex; flex-direction: column;">
-          <!-- Row 1: Banner Image (1 inch height) -->
-          <div style="width: 100%; height: 96px; background-color: #112D4E; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
+          <!-- Row 1: Banner Image (1.3 inch height) -->
+          <div style="width: 100%; height: 125px; background-color: #112D4E; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative;">
             ${badge.badgeImage ? 
               `<img src="${badge.badgeImage}" style="width: 100%; height: 100%; object-fit: cover;" alt="Banner" crossorigin="anonymous" />` :
               `<div style="color: white; font-size: 18px; font-weight: bold;">${visitorData.eventName}</div>`
             }
           </div>
           
-          <!-- Row 2: QR Code (1 inch height) -->
-          <div style="width: 100%; height: 96px; display: flex; align-items: center; justify-content: center; background-color: #F9F7F7;">
-            <img src="${badgeQRCode}" style="width: 72px; height: 72px;" alt="QR Code" />
+          <!-- Row 2: QR Code (1.3 inch height) -->
+          <div style="width: 100%; height: 125px; display: flex; align-items: center; justify-content: center; background-color: #F9F7F7;">
+            <img src="${badgeQRCode}" style="width: 115px; height: 115px;" alt="QR Code" />
           </div>
           
-          <!-- Row 3: Visitor Details (1.5 inch height) -->
-          <div style="width: 100%; height: 144px; display: flex; align-items: center; justify-content: center; background-color: white;">
-            <div style="width: 90%; height: 90%; background-color: #F9F7F7; border: 1px solid #DBE2EF; border-radius: 4px; padding: 6px; display: flex; flex-direction: column; justify-content: center; font-size: 9px; line-height: 1.2;">
-              <div style="text-align: left; margin-bottom: 3px; word-break: break-all;">
-                <strong style="color: #112D4E; font-size: 9px;">ID:</strong> <span style="font-size: 9px; font-family: monospace;">${visitorData.visitorId}</span>
+          <!-- Row 3: Visitor Details (0.9 inch height) -->
+          <div style="width: 100%; height: 86px; display: flex; align-items: center; justify-content: center; background-color: white; padding: 8px;">
+            <div style="width: 100%; height: 100%; display: flex; flex-direction: column; justify-content: center; font-size: 12px; line-height: 1.3;">
+              <div style="text-align: left; margin-bottom: 2px;">
+                <strong style="color: #112D4E;">ID:</strong> <span style="font-family: monospace;">${visitorData.visitorId}</span>
               </div>
-              <div style="text-align: left; margin-bottom: 3px;">
-                <strong style="color: #112D4E; font-size: 9px;">${visitorData.fullName}</strong>
+              <div style="text-align: left; margin-bottom: 2px;">
+                <strong style="color: #112D4E;">Name:</strong> ${visitorData.fullName}
               </div>
-              <div style="text-align: left; margin-bottom: 3px; font-size: 9px;">
-                ${visitorData.email}
+              <div style="text-align: left; margin-bottom: 2px;">
+                <strong style="color: #112D4E;">Event:</strong> ${visitorData.eventName}
               </div>
-              <div style="text-align: left; margin-bottom: 3px; font-size: 9px;">
-                ${visitorData.phoneNumber}
-              </div>
-              <div style="text-align: left; margin-bottom: 3px; font-size: 9px;">
-                <strong>${visitorData.eventName}</strong>
-              </div>
-              <div style="text-align: left; font-size: 9px;">
-                ${visitorData.eventLocation} | ${visitorData.eventStartDate}
+              <div style="text-align: left;">
+                <strong style="color: #112D4E;">Company:</strong> ${visitorData.company || 'N/A'}
               </div>
             </div>
           </div>
           
-          <!-- Row 4: VISITOR Label (0.5 inch height) - No border -->
+          <!-- Row 4: VISITOR Label (0.5 inch height) -->
           <div style="width: 100%; height: 48px; background-color: white; display: flex; align-items: center; justify-content: center; text-align: center;">
             <div style="color: #3F72AF; font-size: 24px; font-weight: bold; letter-spacing: 2px; display: flex; align-items: center; justify-content: center; width: 100%; height: 100%;">VISITOR</div>
           </div>
