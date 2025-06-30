@@ -238,8 +238,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'DELETE') {
     try {
-      const client = await connectToDatabase();
-      const db = client.db(dbName);
+      const { db } = await connectToDatabase();
 
       // Extract global variables from JWT token
       const userInfo = extractUserFromToken(req.headers.authorization);

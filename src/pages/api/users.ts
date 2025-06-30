@@ -49,9 +49,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json({ message: 'Invalid token' });
   }
 
-  // Only admins can fetch users
-  if (userInfo.role !== 'admin') {
-    return res.status(403).json({ message: 'Access denied. Admin role required.' });
+  // Only admins and sub-admins can fetch users
+  if (userInfo.role !== 'admin' && userInfo.role !== 'sub-admin') {
+    return res.status(403).json({ message: 'Access denied. Admin or Sub-Admin role required.' });
   }
 
   try {

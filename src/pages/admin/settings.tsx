@@ -61,7 +61,7 @@ export default function Settings() {
   }, [isAuthenticated, isLoading, router]);
 
   useEffect(() => {
-    if (isAuthenticated && user?.role === 'admin') {
+    if (isAuthenticated && (user?.role === 'admin' || user?.role === 'sub-admin')) {
       fetchUsers();
     }
   }, [isAuthenticated, user]);
@@ -311,13 +311,13 @@ export default function Settings() {
     );
   }
 
-  if (!isAuthenticated || user?.role !== 'admin') {
+  if (!isAuthenticated || (user?.role !== 'admin' && user?.role !== 'sub-admin')) {
     return (
       <AdminLayout>
         <div className="space-y-6 bg-[#F9F7F7] min-h-screen p-6">
           <Card className="p-8 text-center bg-white border-[#DBE2EF]">
             <h3 className="text-lg font-medium text-[#112D4E] mb-2">Access Denied</h3>
-            <p className="text-[#3F72AF]">Only administrators can access user management.</p>
+            <p className="text-[#3F72AF]">Only administrators and sub-administrators can access user management.</p>
           </Card>
         </div>
       </AdminLayout>

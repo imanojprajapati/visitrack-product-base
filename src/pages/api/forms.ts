@@ -192,8 +192,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'PUT') {
     try {
-      const client = await connectToDatabase();
-      const db = client.db(dbName);
+      const { db } = await connectToDatabase();
 
       const userInfo = extractUserFromToken(req.headers.authorization);
 
@@ -275,8 +274,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     }
   } else if (req.method === 'DELETE') {
     try {
-      const client = await connectToDatabase();
-      const db = client.db(dbName);
+      const { db } = await connectToDatabase();
 
       const userInfo = extractUserFromToken(req.headers.authorization);
 

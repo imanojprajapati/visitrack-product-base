@@ -59,9 +59,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     return res.status(401).json({ message: 'Invalid token' });
   }
 
-  // Only admins can create users
-  if (userInfo.role !== 'admin') {
-    return res.status(403).json({ message: 'Access denied. Admin role required.' });
+  // Only admins and sub-admins can create users
+  if (userInfo.role !== 'admin' && userInfo.role !== 'sub-admin') {
+    return res.status(403).json({ message: 'Access denied. Admin or Sub-Admin role required.' });
   }
 
   const { fullName, phoneNumber, email, username, password, role }: CreateUserRequest = req.body;
