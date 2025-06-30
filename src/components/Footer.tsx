@@ -85,33 +85,33 @@ const Footer = () => {
             </ul>
           </div>
 
-          {/* Services */}
+          {/* Features */}
           <div>
-            <h3 className="text-lg font-semibold mb-4">Services</h3>
+            <h3 className="text-lg font-semibold mb-4">Features</h3>
             <ul className="space-y-2">
               <li>
-                <Link href="/services/registration" className="text-gray-400 hover:text-white">
+                <Link href="/features/registration" className="text-gray-400 hover:text-white">
                   Event Registration
                 </Link>
               </li>
               <li>
-                <Link href="/services/checkin" className="text-gray-400 hover:text-white">
+                <Link href="/features/checkin" className="text-gray-400 hover:text-white">
                   Check-in Management
                 </Link>
               </li>
               <li>
-                <Link href="/services/analytics" className="text-gray-400 hover:text-white">
+                <Link href="/features/analytics" className="text-gray-400 hover:text-white">
                   Event Analytics
                 </Link>
               </li>
               <li>
-                <Link href="/services/badges" className="text-gray-400 hover:text-white">
+                <Link href="/features/badges" className="text-gray-400 hover:text-white">
                   Digital Badges
                 </Link>
               </li>
               <li>
-                <Link href="/services/feedback" className="text-gray-400 hover:text-white">
-                  Feedback Collection
+                <Link href="/features/data-import" className="text-gray-400 hover:text-white">
+                  Data Import
                 </Link>
               </li>
             </ul>

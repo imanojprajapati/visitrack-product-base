@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import Head from 'next/head';
-import VideoBackground from '@/components/VideoBackground';
+// Removed VideoBackground import - using color background instead
 
 type DemoFormData = {
   companyName: string;
@@ -160,16 +160,14 @@ const Demo = () => {
         <meta name="description" content="Request a demo of Visitrack's visitor management system" />
       </Head>
 
-      <div className="relative">
-        <VideoBackground />
-        
+      <div className="relative bg-gradient-to-br from-blue-900 via-indigo-800 to-purple-900 min-h-screen">
         <div className="relative z-10">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
             <div className="text-center mb-12">
-              <h1 className="text-4xl font-extrabold text-white sm:text-5xl">
+              <h1 className="text-4xl font-extrabold text-indigo-600 sm:text-5xl">
                 Request a Demo
               </h1>
-              <p className="mt-4 text-xl text-gray-200">
+              <p className="mt-4 text-xl text-indigo-600">
                 Experience how Visitrack can transform your visitor management
               </p>
             </div>

@@ -558,7 +558,7 @@ const Home = () => {
               href="/register"
               className="inline-flex items-center px-6 py-3 border border-white text-base font-medium rounded-md text-white bg-transparent hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-white"
             >
-              Start Free Trial
+              Get Free Demo
             </Link>
           </div>
         </div>
