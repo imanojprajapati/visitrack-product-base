@@ -39,7 +39,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           
           const skip = (page - 1) * limit;
           
-          console.log('🔍 Center DB Debug - ownerId:', ownerId);
+          console.log('🔍 Center DB Debug - ownerId:', ownerId, '| Type:', typeof ownerId);
           console.log('🔍 Center DB Debug - search:', search);
           
           // First, let's check if there's ANY data in the collection
@@ -49,20 +49,46 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
           // Let's also see all unique ownerIds in the collection
           const uniqueOwners = await db.collection('visitordataset').distinct('ownerId');
           console.log('🔍 Center DB Debug - Unique ownerIds in collection:', uniqueOwners);
+          console.log('🔍 Center DB Debug - OwnerIds types:', uniqueOwners.map((id: any) => ({ id, type: typeof id })));
           
-          // Build search query
-          let searchQuery: any = { ownerId };
+          // Check if there's any data for this user with string conversion
+          const ownerIdAsString = String(ownerId);
+          const dataWithStringOwnerId = await db.collection('visitordataset').countDocuments({ ownerId: ownerIdAsString });
+          console.log('🔍 Center DB Debug - Records with ownerId as string:', dataWithStringOwnerId);
+          
+          // Check for any records that might have been imported recently
+          const recentRecords = await db.collection('visitordataset')
+            .find({})
+            .sort({ createdAt: -1 })
+            .limit(5)
+            .toArray();
+          console.log('🔍 Center DB Debug - Recent records:', recentRecords.map((r: any) => ({ 
+            id: r._id, 
+            ownerId: r.ownerId, 
+            ownerIdType: typeof r.ownerId, 
+            fullName: r.fullName,
+            createdAt: r.createdAt 
+          })));
+          
+          // Build search query - ensure ownerId is handled as string for consistency
+          const ownerIdQuery = String(ownerId);
+          let searchQuery: any = { ownerId: ownerIdQuery };
           
           if (search && search.trim()) {
             const searchRegex = new RegExp(search.trim(), 'i');
-            searchQuery.$or = [
-              { fullName: searchRegex },
-              { email: searchRegex },
-              { phoneNumber: searchRegex },
-              { company: searchRegex },
-              { city: searchRegex },
-              { state: searchRegex },
-              { country: searchRegex }
+            searchQuery.$and = [
+              { ownerId: ownerIdQuery }, // Ensure ownerId filter is always applied
+              {
+                $or: [
+                  { fullName: searchRegex },
+                  { email: searchRegex },
+                  { phoneNumber: searchRegex },
+                  { company: searchRegex },
+                  { city: searchRegex },
+                  { state: searchRegex },
+                  { country: searchRegex }
+                ]
+              }
             ];
           }
 

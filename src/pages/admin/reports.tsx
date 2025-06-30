@@ -590,8 +590,16 @@ const Reports = () => {
         setColumnMappings({});
         setSelectedFile(null);
         
-        // Refresh the center DB data
-        await fetchCenterDbData(1, centerDbSearch.debouncedSearchTerm);
+        // Refresh the center DB data - force refresh by clearing current data first
+        setCenterDbData([]);
+        setCenterDbCurrentPage(1);
+        setCenterDbTotalPages(1);
+        setCenterDbTotalCount(0);
+        
+        // Wait a moment for the import to complete fully
+        setTimeout(async () => {
+          await fetchCenterDbData(1, ''); // Refresh without search filter to see all data
+        }, 1000);
         
         // Clear success message after 5 seconds
         setTimeout(() => setImportSuccess(''), 5000);
@@ -1082,7 +1090,7 @@ const Reports = () => {
           {activeTab === 'center-db' && (
             <div className="space-y-6">
               {/* Stats Cards */}
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-6">
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-6">
                 <Card>
                   <CardContent className="p-6">
                     <div className="flex items-center">
@@ -1126,6 +1134,32 @@ const Reports = () => {
                           disabled={centerDbData.length === 0}
                         >
                           CSV
+                        </Button>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="p-6">
+                    <div className="flex items-center">
+                      <div className="p-2 bg-green-100 rounded-lg">
+                        <svg className="w-6 h-6 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </div>
+                      <div className="ml-4">
+                        <p className="text-sm font-medium text-gray-600">Refresh Data</p>
+                        <Button 
+                          onClick={() => {
+                            setCenterDbCurrentPage(1);
+                            fetchCenterDbData(1, centerDbSearch.debouncedSearchTerm);
+                          }}
+                          size="sm" 
+                          className="mt-1"
+                          disabled={centerDbLoading}
+                        >
+                          {centerDbLoading ? 'Loading...' : 'Refresh'}
                         </Button>
                       </div>
                     </div>
@@ -1242,7 +1276,24 @@ const Reports = () => {
                     </div>
                   ) : centerDbData.length === 0 ? (
                     <div className="text-center py-12 text-gray-500">
-                      No visitor dataset found
+                      <div className="flex flex-col items-center gap-4">
+                        <Globe className="w-16 h-16 text-gray-300" />
+                        <div>
+                          <p className="text-lg font-medium">No visitor dataset found</p>
+                          <p className="text-sm mt-2">Your imported data will appear here after import completion.</p>
+                          <div className="mt-4 p-4 bg-blue-50 border border-blue-200 rounded-lg max-w-md">
+                            <p className="text-sm text-blue-800">
+                              <strong>After importing data:</strong>
+                            </p>
+                            <ul className="text-xs text-blue-700 mt-2 space-y-1">
+                              <li>• Wait 1-2 seconds for processing to complete</li>
+                              <li>• Use the "Refresh Data" button if data doesn't appear</li>
+                              <li>• Check that your import was successful</li>
+                              <li>• Ensure you're logged in as the same user who imported the data</li>
+                            </ul>
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="overflow-x-auto">

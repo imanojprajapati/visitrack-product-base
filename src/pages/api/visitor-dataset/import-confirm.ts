@@ -137,7 +137,7 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
         .map(row => {
           const currentTime = new Date();
           return {
-            ownerId: userInfo.ownerId,
+            ownerId: String(userInfo.ownerId), // Ensure ownerId is stored as string
             fullName: row.fullName || '',
             email: row.email || '',
             phoneNumber: row.phoneNumber || '',
@@ -176,7 +176,13 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       // Insert the data into the database
       const result = await db.collection('visitordataset').insertMany(processedData);
 
-      console.log(`✅ [Import Confirm API] Successfully imported ${result.insertedCount} records`);
+      console.log(`✅ [Import Confirm API] Successfully imported ${result.insertedCount} records for ownerId: ${userInfo.ownerId} (${typeof userInfo.ownerId})`);
+      console.log('🔍 [Import Debug] Sample imported record:', {
+        ownerId: processedData[0]?.ownerId,
+        ownerIdType: typeof processedData[0]?.ownerId,
+        fullName: processedData[0]?.fullName,
+        email: processedData[0]?.email
+      });
 
       return res.status(200).json({
         message: `Successfully imported ${result.insertedCount} records`,
