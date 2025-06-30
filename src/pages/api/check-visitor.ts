@@ -30,19 +30,34 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     const existingVisitor = await db.collection('visitors').findOne(query);
 
     if (existingVisitor) {
-      return res.status(409).json({ 
-        message: 'Visitor already registered',
-        visitor: {
-          id: existingVisitor._id,
-          name: existingVisitor.name || existingVisitor.fullName,
+      return res.status(200).json({ 
+        isRegistered: true,
+        message: 'Visitor already registered for this event',
+        visitorData: {
+          visitorId: existingVisitor._id,
+          fullName: existingVisitor.name || existingVisitor.fullName,
           email: existingVisitor.email,
-          phone: existingVisitor.phone || existingVisitor.phoneNumber,
+          phoneNumber: existingVisitor.phone || existingVisitor.phoneNumber,
+          company: existingVisitor.company || '',
+          city: existingVisitor.city || '',
+          state: existingVisitor.state || '',
+          country: existingVisitor.country || '',
+          pincode: existingVisitor.pincode || '',
+          eventName: existingVisitor.eventName || '',
+          eventLocation: existingVisitor.eventLocation || '',
+          eventStartDate: existingVisitor.eventStartDate || '',
+          eventEndDate: existingVisitor.eventEndDate || '',
+          eventStartTime: existingVisitor.eventStartTime || '',
+          eventEndTime: existingVisitor.eventEndTime || '',
           status: existingVisitor.status
         }
       });
     }
 
-    res.status(200).json({ message: 'Visitor not found, can proceed with registration' });
+    res.status(200).json({ 
+      isRegistered: false,
+      message: 'Visitor not registered for this event, can proceed with registration' 
+    });
   } catch (error) {
     console.error('Check visitor error:', error);
     res.status(500).json({ message: 'Internal server error' });

@@ -70,6 +70,7 @@ const RegistrationPage = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [otpTimer, setOtpTimer] = useState(0);
   const [isExistingRegistration, setIsExistingRegistration] = useState(false);
+  const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
 
   useEffect(() => {
     if (eventId) {
@@ -166,7 +167,7 @@ const RegistrationPage = () => {
 
     setIsLoading(true);
     try {
-      // First check if visitor is already registered for this event
+      // First check if visitor is already registered for this specific event
       const checkResponse = await fetch('/api/check-visitor', {
         method: 'POST',
         headers: {
@@ -178,19 +179,27 @@ const RegistrationPage = () => {
         }),
       });
 
+      if (!checkResponse.ok) {
+        throw new Error('Failed to check visitor registration status');
+      }
+
       const checkData = await checkResponse.json();
 
-      if (checkResponse.ok && checkData.isRegistered) {
-        // Visitor is already registered, redirect to success page
+      if (checkData.isRegistered) {
+        // Visitor is already registered for this specific event, redirect to success page
         setVisitorData(checkData.visitorData);
+        // Generate QR code for display
+        generateQRCodeForDisplay(checkData.visitorData.visitorId);
         setIsExistingRegistration(true);
         setCurrentStep('success');
         toast({
           title: "Already Registered",
-          description: "You are already registered for this event. Here are your registration details.",
+          description: `You are already registered for ${event?.eventName}. Here are your registration details.`,
         });
         return;
       }
+
+      // Visitor is not registered for this event, proceed with OTP
 
       // If not registered, proceed with OTP
       const response = await fetch('/api/send-otp', {
@@ -463,6 +472,9 @@ const RegistrationPage = () => {
           eventEndTime: event?.eventEndTime || ''
         });
 
+        // Generate QR code for display
+        generateQRCodeForDisplay(result.visitorId);
+
         setCurrentStep('success');
         setIsExistingRegistration(false);
         toast({
@@ -494,6 +506,22 @@ const RegistrationPage = () => {
       ...prev,
       [fieldId]: value
     }));
+  };
+
+  const generateQRCodeForDisplay = async (visitorId: string) => {
+    try {
+      const dataUrl = await QRCode.toDataURL(visitorId, {
+        width: 200,
+        margin: 2,
+        color: {
+          dark: '#112D4E',
+          light: '#FFFFFF'
+        }
+      });
+      setQrCodeDataUrl(dataUrl);
+    } catch (error) {
+      console.error('Error generating QR code for display:', error);
+    }
   };
 
   const downloadQRCode = async () => {
@@ -960,6 +988,24 @@ const RegistrationPage = () => {
                       : `Thank you for registering for ${visitorData.eventName}. You will receive a confirmation message shortly.`
                     }
                   </p>
+                  
+                  {/* QR Code Display */}
+                  {qrCodeDataUrl && (
+                    <div className="bg-white rounded-lg p-4 sm:p-6 mb-4 sm:mb-6 border border-[#DBE2EF] text-center">
+                      <h3 className="font-semibold mb-3 sm:mb-4 text-base sm:text-lg text-[#112D4E]">Your QR Code:</h3>
+                      <div className="flex justify-center mb-3">
+                        <img 
+                          src={qrCodeDataUrl} 
+                          alt="Visitor QR Code" 
+                          className="border border-[#DBE2EF] rounded-lg"
+                          style={{ width: '200px', height: '200px' }}
+                        />
+                      </div>
+                      <p className="text-xs sm:text-sm text-[#3F72AF]">
+                        Show this QR code at the event entrance for quick check-in
+                      </p>
+                    </div>
+                  )}
                   
                   <div className="bg-[#F9F7F7] rounded-lg p-4 sm:p-6 mb-4 sm:mb-6 text-left border border-[#DBE2EF]">
                     <h3 className="font-semibold mb-3 sm:mb-4 text-center text-base sm:text-lg text-[#112D4E]">Registration Details:</h3>
