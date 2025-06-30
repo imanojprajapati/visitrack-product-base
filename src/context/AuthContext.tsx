@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { useRouter } from 'next/router';
+import { 
+  hasPageAccess, 
+  hasPageAccessByPath, 
+  getAccessiblePages, 
+  PAGE_ACCESS_KEYS,
+  PAGE_PATHS,
+  validatePageAccess 
+} from '../lib/globalVariables';
 
 interface User {
   id: string;
@@ -12,6 +20,8 @@ interface User {
   role: string;
   isActive: boolean;
   emailVerified: boolean;
+  // Page access fields (dynamically added from database)
+  [key: string]: any; // This allows for dynamic page access fields like "dashboard:true", "events:true", etc.
 }
 
 interface AuthContextType {
@@ -24,7 +34,16 @@ interface AuthContextType {
   userId: string | null;
   email: string | null;
   fullName: string | null;
-  // Methods
+  pageAccess: Record<string, boolean> | null; // User's page access permissions
+  // Page Access Methods
+  hasPageAccess: (pageKey: string) => boolean;
+  hasPageAccessByPath: (pagePath: string) => boolean;
+  getAccessiblePages: () => string[];
+  canAccessDashboard: () => boolean;
+  canAccessEvents: () => boolean;
+  canAccessReports: () => boolean;
+  canAccessSettings: () => boolean;
+  // General Methods
   login: (userData: User, authToken: string) => void;
   logout: () => void;
   refreshGlobalVariables: () => void;
@@ -62,6 +81,54 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const fullName = user?.fullName || null;
   const isAuthenticated = !!user && !!token;
 
+  // 🔐 Extract page access from user data
+  const pageAccess: Record<string, boolean> | null = user ? extractPageAccessFromUser(user) : null;
+
+  /**
+   * Extract page access fields from user object
+   */
+  function extractPageAccessFromUser(userData: User): Record<string, boolean> {
+    const pageAccessData: Record<string, boolean> = {};
+    
+    // Extract all page access fields (format: "dashboard:true": true)
+    Object.keys(userData).forEach(key => {
+      if (key.endsWith(':true') && typeof userData[key] === 'boolean') {
+        pageAccessData[key] = userData[key];
+      }
+    });
+    
+    console.log('🔐 Extracted page access from user:', pageAccessData);
+    return pageAccessData;
+  }
+
+  // 🔐 Page Access Methods
+  const checkPageAccess = (pageKey: string): boolean => {
+    if (!pageAccess) {
+      console.warn('⚠️ No page access data available');
+      return false;
+    }
+    return hasPageAccess(pageAccess, pageKey);
+  };
+
+  const checkPageAccessByPath = (pagePath: string): boolean => {
+    if (!pageAccess) {
+      console.warn('⚠️ No page access data available');
+      return false;
+    }
+    return hasPageAccessByPath(pageAccess, pagePath);
+  };
+
+  const getUserAccessiblePages = (): string[] => {
+    if (!pageAccess) return [];
+    return getAccessiblePages(pageAccess);
+  };
+
+  // 🔐 Specific Page Access Helpers
+  const canAccessDashboard = () => checkPageAccess(PAGE_ACCESS_KEYS.DASHBOARD);
+  const canAccessEvents = () => checkPageAccess(PAGE_ACCESS_KEYS.EVENTS);
+  const canAccessReports = () => checkPageAccess(PAGE_ACCESS_KEYS.REPORTS);
+  const canAccessSettings = () => checkPageAccess(PAGE_ACCESS_KEYS.SETTINGS);
+
   // Function to refresh global variables (useful for debugging)
   const refreshGlobalVariables = () => {
     console.log('🔄 Current Global Variables:', {
@@ -71,6 +138,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       role: user?.role || null,
       email: user?.email || null,
       fullName: user?.fullName || null,
+      pageAccess: pageAccess,
       isAuthenticated: !!user && !!token,
       timestamp: new Date().toISOString()
     });
@@ -87,12 +155,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         setToken(savedToken);
         setUser(userData);
         
+        const userPageAccess = extractPageAccessFromUser(userData);
+        
         console.log('🔐 Restored user session - Global Variables loaded:', {
           userId: userData.id,
           ownerId: userData.ownerId,
           username: userData.username,
           role: userData.role,
-          email: userData.email
+          email: userData.email,
+          pageAccessFields: Object.keys(userPageAccess).length
         });
       } catch (error) {
         console.error('Error parsing saved user data:', error);
@@ -111,6 +182,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     localStorage.setItem('authToken', authToken);
     localStorage.setItem('userData', JSON.stringify(userData));
     
+    const userPageAccess = extractPageAccessFromUser(userData);
+    
     // 🎯 Log when global variables are updated during login
     console.log('🚀 User Login Complete - Global Variables Updated:', {
       previousUser: user?.username || 'None',
@@ -123,6 +196,8 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         email: userData.email,
         fullName: userData.fullName
       },
+      pageAccess: userPageAccess,
+      accessiblePages: getAccessiblePages(userPageAccess),
       loginTime: new Date().toISOString()
     });
   };
@@ -140,6 +215,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     console.log('🔓 User Logout - Global Variables Cleared:', {
       previousUser,
       globalVariablesNowNull: true,
+      pageAccessCleared: true,
       logoutTime: new Date().toISOString()
     });
     
@@ -180,10 +256,17 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         role: user.role,
         email: user.email,
         isAuthenticated,
+        pageAccessAvailable: !!pageAccess,
+        pageAccessCount: pageAccess ? Object.keys(pageAccess).length : 0,
         timestamp: new Date().toISOString()
       });
+
+      // Validate page access data
+      if (pageAccess && !validatePageAccess(pageAccess)) {
+        console.warn('⚠️ Invalid page access data detected for user:', user.username);
+      }
     }
-  }, [user, isAuthenticated]);
+  }, [user, isAuthenticated, pageAccess]);
 
   const value: AuthContextType = {
     user,
@@ -195,13 +278,22 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     userId,
     email,
     fullName,
-    // Methods
+    pageAccess,
+    // Page Access Methods
+    hasPageAccess: checkPageAccess,
+    hasPageAccessByPath: checkPageAccessByPath,
+    getAccessiblePages: getUserAccessiblePages,
+    canAccessDashboard,
+    canAccessEvents,
+    canAccessReports,
+    canAccessSettings,
+    // General Methods
     login,
     logout,
     refreshGlobalVariables,
     // State
     isAuthenticated,
-    isLoading
+    isLoading,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -76,6 +76,27 @@ export const adminRoutes: RoutePermission[] = [
   }
 ];
 
+// Generate default page access permissions
+export const generateDefaultPageAccess = (): Record<string, boolean> => {
+  const pageAccess: Record<string, boolean> = {};
+  
+  adminRoutes.forEach(route => {
+    // Convert path to page access key format
+    let pageKey = route.path.replace('/admin/', '').replace('/admin', 'dashboard');
+    
+    // Handle special cases for consistent naming
+    if (pageKey === 'badge-management') pageKey = 'badge-management';
+    if (pageKey === 'entry-log') pageKey = 'entry-log';
+    if (pageKey === 'forms') pageKey = 'form-builder';
+    if (pageKey === 'settings') pageKey = 'setting';
+    
+    // Add page access with field name format like "dashboard:true" with boolean value
+    pageAccess[`${pageKey}:true`] = true;
+  });
+  
+  return pageAccess;
+};
+
 // Utility functions with case-insensitive checking
 export const hasPermission = (userRole: string, routePath: string): boolean => {
   const route = adminRoutes.find(r => r.path === routePath);

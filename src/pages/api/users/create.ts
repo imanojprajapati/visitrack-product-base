@@ -3,6 +3,7 @@ import { ObjectId } from 'mongodb';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { connectToDatabase } from '../../../lib/mongodb';
+import { generateDefaultPageAccess } from '../../../lib/rolePermissions';
 
 const MONGODB_URI = process.env.MONGODB_URI!;
 const MONGODB_DB = process.env.MONGODB_DB || 'visitrackp';
@@ -140,7 +141,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // Generate a new ObjectId for the user
     const newUserId = new ObjectId();
     
-    // Create new user with inherited data from admin
+    // Generate default page access permissions
+    const defaultPageAccess = generateDefaultPageAccess();
+    
+    // Create new user with inherited data from admin + page access
     const newUser = {
       _id: newUserId,
       ownerId: adminUser.ownerId,          // ✅ Same as admin (key requirement)
@@ -155,10 +159,11 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       updatedAt: new Date(),
       isActive: true,                      // ✅ Default active
       emailVerified: false,                // ✅ Default not verified
-      lastLoginAt: null                    // ✅ Never logged in
+      lastLoginAt: null,                   // ✅ Never logged in
+      ...defaultPageAccess                 // ✅ Add all page access fields automatically
     };
 
-    console.log('👤 [Create User API] Creating new user:', {
+    console.log('👤 [Create User API] Creating new user with page access:', {
       _id: newUser._id,
       ownerId: newUser.ownerId,
       fullName: newUser.fullName,
@@ -166,17 +171,19 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       username: newUser.username,
       role: newUser.role,
       capacity: newUser.capacity,
-      inheritedFromAdmin: adminUser.fullName
+      inheritedFromAdmin: adminUser.fullName,
+      pageAccessFields: Object.keys(defaultPageAccess)
     });
 
     // Insert the new user
     const result = await db.collection('users').insertOne(newUser);
 
     if (result.acknowledged) {
-      console.log('✅ [Create User API] User created successfully:', {
+      console.log('✅ [Create User API] User created successfully with page access:', {
         insertedId: result.insertedId,
         ownerId: newUser.ownerId,
-        role: newUser.role
+        role: newUser.role,
+        pageAccessCount: Object.keys(defaultPageAccess).length
       });
 
       // Return user data without password

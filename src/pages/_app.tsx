@@ -7,10 +7,12 @@ import Footer from '../components/Footer';
 import { useEffect, useState } from 'react';
 import { Toaster } from '../components/ui/toaster';
 import { AuthProvider } from '../context/AuthContext';
+import { SuperAdminProvider } from '../context/SuperAdminContext';
 
 function MyApp({ Component, pageProps }: AppProps) {
   const router = useRouter();
   const isAdminPage = router.pathname.startsWith('/admin');
+  const isSuperAdminPage = router.pathname.startsWith('/superadmin');
   const isEventRegistrationPage = router.pathname.includes('/events/') && router.pathname.includes('/register');
   const isAuthPage = router.pathname === '/login' || router.pathname === '/register';
   const [mounted, setMounted] = useState(false);
@@ -21,24 +23,26 @@ function MyApp({ Component, pageProps }: AppProps) {
 
   const content = (
     <AuthProvider>
-      <Head>
-        <title>Visitrack - Event Management Platform</title>
-        <meta name="description" content="Visitrack - Your comprehensive event management solution" />
-        <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-        <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
-      </Head>
-      {isAdminPage || isEventRegistrationPage || isAuthPage ? (
-        <Component {...pageProps} />
-      ) : (
-        <div className="min-h-screen flex flex-col">
-          <Header />
-          <main className="flex-grow pt-20">
-            <Component {...pageProps} />
-          </main>
-          <Footer />
-        </div>
-      )}
-      <Toaster />
+      <SuperAdminProvider>
+        <Head>
+          <title>Visitrack - Event Management Platform</title>
+          <meta name="description" content="Visitrack - Your comprehensive event management solution" />
+          <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+          <link rel="shortcut icon" type="image/x-icon" href="/favicon.ico" />
+        </Head>
+        {isAdminPage || isSuperAdminPage || isEventRegistrationPage || isAuthPage ? (
+          <Component {...pageProps} />
+        ) : (
+          <div className="min-h-screen flex flex-col">
+            <Header />
+            <main className="flex-grow pt-20">
+              <Component {...pageProps} />
+            </main>
+            <Footer />
+          </div>
+        )}
+        <Toaster />
+      </SuperAdminProvider>
     </AuthProvider>
   );
 

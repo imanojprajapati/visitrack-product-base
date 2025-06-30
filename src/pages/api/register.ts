@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { ObjectId } from 'mongodb';
 import { connectToDatabase, dbName } from '../../lib/mongodb';
+import { generateDefaultPageAccess } from '../../lib/rolePermissions';
 
 const MONGODB_URI = process.env.MONGODB_URI;
 const MONGODB_DB = process.env.MONGODB_DB;
@@ -82,7 +83,10 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     // If ownerId is provided, use it; otherwise create a new one using MongoDB ObjectId
     const userOwnerId = ownerId || new ObjectId().toString();
 
-    // Create user object
+    // Generate default page access permissions
+    const defaultPageAccess = generateDefaultPageAccess();
+
+    // Create user object with page access permissions
     const newUser = {
       ownerId: userOwnerId,
       fullName: fullName.trim(),
@@ -95,8 +99,16 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
       createdAt: new Date(),
       updatedAt: new Date(),
       isActive: true,
-      emailVerified: false
+      emailVerified: false,
+      ...defaultPageAccess // Add all page access fields automatically
     };
+
+    console.log('📝 [Register API] Creating user with page access:', {
+      fullName: newUser.fullName,
+      email: newUser.email,
+      role: newUser.role,
+      pageAccessFields: Object.keys(defaultPageAccess)
+    });
 
     // Insert user into database
     const result = await usersCollection.insertOne(newUser);
