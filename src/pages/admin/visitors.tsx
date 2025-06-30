@@ -45,7 +45,7 @@ const VisitorManagement = () => {
   // Filter states (excluding search which is now debounced)
   const [filters, setFilters] = useState({
     eventId: 'all',
-    status: 'all'
+    status: 'Registration'
   });
 
   // Debounced search
